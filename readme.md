@@ -32,12 +32,12 @@ rustup default stable-x86_64-pc-windows-gnullvm
 
 Install dependencies:
 
-*Arch Linux*
+**Arch Linux**
 ```bash
 sudo pacman -S base-devel sdl3 sdl2-compat sdl2_mixer libpng libzip zlib zig rust
 ```
 
-*Debian/Ubuntu*
+**Debian/Ubuntu**
 ```
 sudo apt install libsdl3-dev libsdl2-compat-dev libsdl2-mixer libpng-dev libzip-dev rustup git git-lfs
 ```
@@ -60,12 +60,12 @@ This creates `astonia-client.AppImage` which bundles all dependencies (including
 
 **Requirements**: FUSE2 must be installed to run AppImages. Most distributions include it by default, but if needed:
 
-_Arch Linux_
+**Arch Linux**
 ```bash
 sudo pacman -S fuse2
 ```
 
-_Ubuntu/Debian_
+**Ubuntu/Debian**
 ```
 sudo apt install libfuse2
 ```
