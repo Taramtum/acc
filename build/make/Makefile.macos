@@ -1,11 +1,42 @@
+# Build type: release (default) or debug
+# Usage: make BUILD_TYPE=debug
+BUILD_TYPE ?= release
+
 all: bin/moac
 
 SDL_CONFIG=sdl2-config
 CC=clang
-OPT=-O3
-DEBUG=-gdwarf-4
+
+# Build type configuration
+ifeq ($(BUILD_TYPE),debug)
+    OPT=-O0
+    DEBUG=-gdwarf-4 -g3
+    DEVELOPER_FLAGS=-DDEVELOPER
+    $(info Building DEBUG configuration)
+else
+    OPT=-O3
+    DEBUG=-gdwarf-4
+    DEVELOPER_FLAGS=
+    $(info Building RELEASE configuration)
+endif
 PKG_CONFIG?=pkg-config
 BREW_PREFIX:=$(shell brew --prefix 2>/dev/null)
+
+STRICT_WARNING_FLAGS = \
+    -Wall -Wextra -Wpedantic \
+    -Wformat=2 \
+    -Wnull-dereference \
+    -Wdouble-promotion \
+    -Wcast-align \
+    -Wcast-qual \
+    -Wconversion -Wsign-conversion \
+    -Wmissing-prototypes -Wstrict-prototypes \
+    -Wvla \
+    -Wfloat-equal \
+    -Wnewline-eof \
+    -Wno-nullability-extension
+
+WARNING_FLAGS ?= $(STRICT_WARNING_FLAGS) -Werror
 
 ZIP_CFLAGS:=$(shell $(PKG_CONFIG) --cflags libzip 2>/dev/null)
 ZIP_LIBS:=$(shell $(PKG_CONFIG) --libs libzip 2>/dev/null)
@@ -38,12 +69,18 @@ ifeq ($(SDL_MIXER_LIBS),)
 endif
 
 SDL_CFLAGS=$(shell $(SDL_CONFIG) --cflags)
-CFLAGS=$(OPT) $(DEBUG) -Wall -Wno-pointer-sign -Wno-char-subscripts -fno-omit-frame-pointer -flto -fvisibility=hidden $(SDL_CFLAGS) $(SDL_MIXER_CFLAGS) -Iinclude -Isrc $(ZIP_CFLAGS)
-CFLAGS_PIC=$(OPT) $(DEBUG) -Wall -Wno-pointer-sign -Wno-char-subscripts -fPIC -fno-omit-frame-pointer -fvisibility=hidden $(SDL_CFLAGS) $(SDL_MIXER_CFLAGS) -Iinclude -Isrc $(ZIP_CFLAGS)
+# Default to using mimalloc unless USE_MIMALLOC=0 is set
+USE_MIMALLOC ?= 1
+
+CFLAGS=$(OPT) $(DEBUG) $(WARNING_FLAGS) $(DEVELOPER_FLAGS) -fno-omit-frame-pointer -flto -fvisibility=hidden $(SDL_CFLAGS) $(SDL_MIXER_CFLAGS) -Iinclude -Isrc $(ZIP_CFLAGS) -DUSE_MIMALLOC=$(USE_MIMALLOC)
+CFLAGS_PIC=$(OPT) $(DEBUG) $(WARNING_FLAGS) $(DEVELOPER_FLAGS) -fPIC -fno-omit-frame-pointer -fvisibility=hidden $(SDL_CFLAGS) $(SDL_MIXER_CFLAGS) -Iinclude -Isrc $(ZIP_CFLAGS) -DUSE_MIMALLOC=$(USE_MIMALLOC)
 LDFLAGS=$(OPT) $(DEBUG) -rdynamic -Wl,-rpath,@loader_path
 
 SDL_LIBS=$(shell $(SDL_CONFIG) --libs)
 LIBS = -lz -lpng $(ZIP_LIBS) $(SDL_MIXER_LIBS) -lm
+ifeq ($(USE_MIMALLOC),1)
+LIBS += -lmimalloc
+endif
 
 ASTONIA_NET_DIR=astonia_net
 # Detect macOS architecture
@@ -55,10 +92,15 @@ else
 endif
 ASTONIA_NET_LIB=$(ASTONIA_NET_DIR)/target/$(ASTONIA_NET_TGT)/release/libastonia_net.dylib
 
+# Tiny Mach-O launcher used as CFBundleExecutable inside Astonia.app
+LAUNCHER_SRC := build/tools/macos_launcher.c
+LAUNCHER_BIN := bin/astonia_launcher
+
 OBJS	=		src/gui/gui_core.o src/gui/gui_input.o src/gui/gui_display.o src/gui/gui_inventory.o src/gui/gui_buttons.o src/gui/gui_map.o\
 			src/client/client.o src/client/protocol.o src/client/skill.o\
 			src/game/game_core.o src/game/game_effects.o src/game/game_lighting.o src/game/game_display.o\
-			src/game/render.o src/game/font.o src/game/main.o src/game/sprite.o src/game/version.o\
+			src/game/render.o src/game/font.o src/game/main.o src/game/sprite.o\
+			src/game/memory.o src/game/version.o\
 			src/modder/modder.o\
 			src/sdl/sdl_core.o src/sdl/sdl_texture.o src/sdl/sdl_image.o src/sdl/sdl_effects.o src/sdl/sdl_draw.o src/sdl/sound.o\
 			src/helper/helper.o\
@@ -78,6 +120,11 @@ $(ASTONIA_NET_LIB):
 		rustup target add $(ASTONIA_NET_TGT)
 		cd $(ASTONIA_NET_DIR) && cargo build --release --target $(ASTONIA_NET_TGT)
 
+# Build the tiny Mach-O launcher binary used as CFBundleExecutable
+$(LAUNCHER_BIN): $(LAUNCHER_SRC)
+		$(CC) -O2 $(STRICT_WARNING_FLAGS) -mmacosx-version-min=11.0 \
+		      -o $(LAUNCHER_BIN) $(LAUNCHER_SRC)
+
 bin/amod.dylib:	src/amod/amod.o bin/moac
 		$(CC) $(LDFLAGS) -dynamiclib -undefined dynamic_lookup -o bin/amod.dylib src/amod/amod.o
 
@@ -87,7 +134,7 @@ bin/anicopy:	src/helper/anicopy.c
 		$(CC) $(OPT) $(DEBUG) -Wall -o bin/anicopy src/helper/anicopy.c
 
 bin/convert:	src/helper/convert.c
-		$(CC) $(OPT) $(DEBUG) -Wall -DSTANDALONE $(ZIP_CFLAGS) -o bin/convert src/helper/convert.c -lpng $(ZIP_LIBS)
+		$(CC) $(OPT) $(DEBUG) -Wall -DSTANDALONE -DUSE_MIMALLOC=$(USE_MIMALLOC) $(ZIP_CFLAGS) -o bin/convert src/helper/convert.c -lpng $(ZIP_LIBS) $(if $(filter 1,$(USE_MIMALLOC)),-lmimalloc,)
 
 
 src/client/client.o:	src/client/client.c src/astonia.h src/client/client.h src/client/client_private.h src/sdl/sdl.h
@@ -139,6 +186,9 @@ src/modder/modder.o:	src/modder/modder.c src/astonia.h src/modder/modder.h src/m
 
 src/sdl/sound.o:      	src/sdl/sound.c src/astonia.h src/sdl/sdl.h src/sdl/sdl_private.h
 
+src/game/memory.o: src/game/memory.c src/game/memory.h src/astonia.h src/sdl/sdl.h
+		$(CC) $(CFLAGS) -c -o $@ $<
+
 src/game/memory_macos.o: src/game/memory_macos.c
 		$(CC) $(CFLAGS_PIC) -c -o $@ $<
 
@@ -146,7 +196,7 @@ clean:
 	@echo "Cleaning build artifacts..."
 	-rm -f src/*/*.o src/*/*-sanitizer.o src/*/*-coverage.o
 	-rm -f bin/moac bin/moac-sanitizer bin/moac-coverage
-	-rm -f bin/*.dylib bin/convert bin/anicopy
+	-rm -f bin/*.dylib bin/convert bin/anicopy bin/astonia_launcher
 	-rm -rf bin/*.dSYM
 	@echo "Cleaning coverage files..."
 	-find . -type f -name '*.gcda' -delete
@@ -190,3 +240,60 @@ distrib: distrib-stage
 amod:		bin/amod.dylib bin/moac
 convert:	bin/convert
 anicopy:	bin/anicopy
+
+# ---------------------------------------------------------------------------
+# macOS app bundle / signing (local)
+# ---------------------------------------------------------------------------
+
+MACOS_APP_BUNDLE       := distrib/Astonia.app
+MACOS_UNSIGNED_APP_TMP := distrib/Astonia-unsigned.app
+
+# Build the unsigned .app bundle.
+# Relies on:
+#   - bin/moac
+#   - bin/astonia_launcher
+appbundle: bin/moac $(LAUNCHER_BIN)
+	@echo "Building unsigned macOS .app bundle..."
+	@APP_VERSION=$(VERSION) build/tools/package_macos.sh
+
+sign: $(MACOS_APP_BUNDLE)
+	@echo "Signing macOS .app bundle with rcodesign..."
+	@[ -n "$$APPLE_CERT_P12" ] || { echo "ERROR: APPLE_CERT_P12 is not set"; exit 1; }
+	@[ -n "$$APPLE_CERT_P12_PASSWORD" ] || { echo "ERROR: APPLE_CERT_P12_PASSWORD is not set"; exit 1; }
+
+	@echo "Preparing unsigned bundle for signing..."
+	@rm -rf "$(MACOS_UNSIGNED_APP_TMP)"
+	@mv "$(MACOS_APP_BUNDLE)" "$(MACOS_UNSIGNED_APP_TMP)"
+
+	@echo "Running rcodesign (input: $(MACOS_UNSIGNED_APP_TMP), output: $(MACOS_APP_BUNDLE))..."
+	rcodesign sign \
+	  --p12-file "$$APPLE_CERT_P12" \
+	  --p12-password "$$APPLE_CERT_P12_PASSWORD" \
+	  --binary-identifier "com.prismaphonic.astonia" \
+      --for-notarization \
+	  "$(MACOS_UNSIGNED_APP_TMP)" \
+	  "$(MACOS_APP_BUNDLE)" \
+	|| { \
+	  echo "ERROR: rcodesign failed, restoring unsigned app bundle..."; \
+	  rm -rf "$(MACOS_APP_BUNDLE)"; \
+	  mv "$(MACOS_UNSIGNED_APP_TMP)" "$(MACOS_APP_BUNDLE)"; \
+	  exit 1; \
+	}
+
+	@echo "Cleaning up temporary unsigned bundle..."
+	@rm -rf "$(MACOS_UNSIGNED_APP_TMP)"
+
+	@echo "Signed app bundle at $(MACOS_APP_BUNDLE)"
+
+# Convenience: build + sign in one step
+appbundle-sign: appbundle sign
+	@echo "Signed app bundle at $(MACOS_APP_BUNDLE)"
+
+# Convenience targets for build types
+debug:
+	$(MAKE) -f build/make/Makefile.macos BUILD_TYPE=debug
+
+release:
+	$(MAKE) -f build/make/Makefile.macos BUILD_TYPE=release
+
+.PHONY: debug release

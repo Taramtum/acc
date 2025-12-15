@@ -2,6 +2,7 @@
  * Part of Astonia Client (c) Daniel Brockhaus. Please read license.txt.
  */
 #include "../dll.h"
+#include "../astonia.h"
 
 #define INVDX      4
 #define INVDY      (__invdy)
@@ -301,7 +302,7 @@ extern int fkeyitem[4];
 extern int lcmd;
 extern int rcmd;
 
-extern int takegold; // the amout of gold to take
+extern uint32_t takegold; // the amout of gold to take
 
 DLL_EXPORT extern SKLTAB *skltab;
 extern int skltab_max;
@@ -313,7 +314,7 @@ extern int max_keytab;
 extern int clan_offset;
 
 extern int show_color, show_cur;
-extern int show_color_c[];
+extern unsigned short show_color_c[];
 extern int show_cx;
 extern char hitsel[];
 extern int hittype;
@@ -331,13 +332,14 @@ extern int update_skltab;
 extern int show_look;
 extern int control_override;
 extern int vk_rbut, vk_lbut;
-extern int vk_special, vk_special_time;
+extern int vk_special;
+extern unsigned int vk_special_time;
 extern struct special_tab special_tab[];
 extern int max_special;
 extern int plrmn;
-extern int mapsel;
-extern int itmsel;
-extern int chrsel;
+extern map_index_t mapsel;
+extern map_index_t itmsel;
+extern map_index_t chrsel;
 extern int last_right_click_invsel;
 extern int mapoffx, mapoffy;
 extern int mapaddx, mapaddy;
@@ -345,7 +347,10 @@ extern int nextframe, nexttick;
 extern uint64_t gui_time_network;
 extern uint64_t gui_frametime;
 extern uint64_t gui_ticktime;
-extern int game_slowdown;
+DLL_EXPORT extern int game_slowdown;
+
+// Platform-specific GUI functions
+void gui_sdl_draghack(void);
 
 // ============================================================================
 // Shared variables from gui_map.c (shared for map coordinate functions)
@@ -398,6 +403,7 @@ void set_cmd_states(void);
 // From gui_display.c
 void display_helpandquest(void);
 void display_wheel(void);
+void display(void);
 void update_ui_layout(void);
 
 // From gui_map.c (already declared in gui.h but repeated here for clarity)
@@ -428,6 +434,12 @@ void display_exp(void);
 void display_military(void);
 void display_rage(void);
 void display_game_special(void);
+
+// hover.c
+uint16_t tactics2melee(int val);
+uint16_t tactics2immune(int val);
+uint16_t tactics2spell(int val);
+
 int do_display_questlog(int nr);
 void display_action(void);
 void display_selfbars(void);
@@ -441,9 +453,9 @@ void cmd_color(int nr);
 void cmd_reset(void);
 void cmd_proc(int key);
 
-DLL_EXPORT int get_near_char(int x, int y, int looksize);
-DLL_EXPORT int get_near_item(int x, int y, int flag, int looksize);
-DLL_EXPORT int get_near_ground(int x, int y);
+DLL_EXPORT size_t get_near_char(int x, int y, unsigned int looksize);
+DLL_EXPORT size_t get_near_item(int x, int y, unsigned int flag, unsigned int looksize);
+DLL_EXPORT size_t get_near_ground(int x, int y);
 
 int context_open(int mx, int my);
 void context_display(int mx, int my);
@@ -470,7 +482,7 @@ DLL_EXPORT extern char hover_time_text[];
 
 int action_key2slot(int key);
 int action_slot2key(int slot);
-int has_action_skill(int i);
+uint16_t has_action_skill(int i);
 void action_set_key(int slot, int key);
 void context_action_enable(int onoff);
 
@@ -483,3 +495,4 @@ void dots_update(void);
 void display_action_lock(void);
 void display_action_open(void);
 void display_wear_lock(void);
+DLL_EXPORT void cmd_add_text(const char *buf, int typ);

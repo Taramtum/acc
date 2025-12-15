@@ -64,7 +64,7 @@ static inline void ipv4_be_to_string(uint32_t be, char out[16])
 }
 
 void process(unsigned char *buf, int size);
-int prefetch(unsigned char *buf, int size);
+uint32_t prefetch(unsigned char *buf, int size);
 
 void sv_protocol(unsigned char *buf);
 
@@ -77,17 +77,17 @@ void cmd_take(int x, int y);
 void cmd_look_map(int x, int y);
 void cmd_look_item(int x, int y);
 void cmd_look_inv(int pos);
-void cmd_look_char(int cn);
+void cmd_look_char(unsigned int cn);
 void cmd_use(int x, int y);
 void cmd_drop(int x, int y);
 void cmd_speed(int mode);
 void cmd_teleport(int nr);
 void cmd_stop(void);
-void cmd_kill(int cn);
-void cmd_give(int cn);
-void cmd_some_spell(int spell, int x, int y, int chr);
+void cmd_kill(unsigned int cn);
+void cmd_give(unsigned int cn);
+void cmd_some_spell(int spell, int x, int y, unsigned int chr);
 void cmd_raise(int vn);
-void cmd_take_gold(int vn);
+void cmd_take_gold(uint32_t vn);
 void cmd_drop_gold(void);
 void cmd_junk_item(void);
 void cmd_text(char *text);

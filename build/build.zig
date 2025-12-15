@@ -8,6 +8,12 @@ pub fn build(b: *std.Build) void {
     const host = builtin.target;
     const optimize = b.standardOptimizeOption(.{});
 
+    // Developer mode option - automatically enabled for Debug builds
+    const developer = b.option(bool, "developer", "Enable developer mode (default: true for Debug builds)") orelse (optimize == .Debug);
+    if (developer) {
+        std.debug.print("Building with DEVELOPER mode enabled\n", .{});
+    }
+
     const include_root = "include";
     const src_root = "src";
 
@@ -62,6 +68,7 @@ pub fn build(b: *std.Build) void {
         "src/game/render.c",
         "src/game/font.c",
         "src/game/main.c",
+        "src/game/memory.c",
         "src/game/sprite.c",
 
         // MODDER core
@@ -99,18 +106,45 @@ pub fn build(b: *std.Build) void {
         "-O3",
         "-gdwarf-4",
         "-Wall",
-        "-Wno-pointer-sign",
-        "-Wno-char-subscripts",
+        "-Wextra",
+        "-Wpedantic",
+        "-Wformat=2",
+        "-Wnull-dereference",
+        "-Wdouble-promotion",
+        "-Wcast-align",
+        "-Wcast-qual",
+        "-Wconversion",
+        "-Wsign-conversion",
+        "-Wmissing-prototypes",
+        "-Wstrict-prototypes",
+        "-Wvla",
+        "-Wfloat-equal",
+        "-Wnewline-eof",
+        "-Werror",
         "-fno-omit-frame-pointer",
         "-fvisibility=hidden",
+        "-DUSE_MIMALLOC=1",
     };
 
     const win_cflags = &.{
         "-O3",
         "-gdwarf-4",
         "-Wall",
-        "-Wno-pointer-sign",
-        "-Wno-char-subscripts",
+        "-Wextra",
+        "-Wpedantic",
+        "-Wformat=2",
+        "-Wnull-dereference",
+        "-Wdouble-promotion",
+        "-Wcast-align",
+        "-Wcast-qual",
+        "-Wconversion",
+        "-Wsign-conversion",
+        "-Wmissing-prototypes",
+        "-Wstrict-prototypes",
+        "-Wvla",
+        "-Wfloat-equal",
+        "-Wnewline-eof",
+        "-Werror",
         "-fno-omit-frame-pointer",
         "-fvisibility=hidden",
         "-Dmain=SDL_main",
@@ -118,6 +152,7 @@ pub fn build(b: *std.Build) void {
         "-DENABLE_CRASH_HANDLER",
         "-DENABLE_SHAREDMEM",
         "-DENABLE_DRAGHACK",
+        "-DUSE_MIMALLOC=1",
     };
 
     const exe = b.addExecutable(.{
@@ -142,35 +177,57 @@ pub fn build(b: *std.Build) void {
         exe.addCSourceFiles(.{ .files = common_sources, .flags = base_cflags });
     }
 
+    const pic_cflags = &.{
+        "-O3",
+        "-gdwarf-4",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Wformat=2",
+        "-Wnull-dereference",
+        "-Wdouble-promotion",
+        "-Wcast-align",
+        "-Wcast-qual",
+        "-Wconversion",
+        "-Wsign-conversion",
+        "-Wmissing-prototypes",
+        "-Wstrict-prototypes",
+        "-Wvla",
+        "-Wfloat-equal",
+        "-Wnewline-eof",
+        "-Werror",
+        "-fPIC",
+        "-fno-omit-frame-pointer",
+        "-fvisibility=hidden",
+        "-DUSE_MIMALLOC=1",
+    };
+
     if (tgt.os.tag == .linux) {
         exe.addCSourceFiles(.{
             .files = linux_sources,
-            .flags = &.{
-                "-O3",                     "-gdwarf-4",            "-Wall",
-                "-Wno-pointer-sign",       "-Wno-char-subscripts", "-fPIC",
-                "-fno-omit-frame-pointer", "-fvisibility=hidden",
-            },
+            .flags = pic_cflags,
         });
     } else if (tgt.os.tag == .macos) {
         exe.addCSourceFiles(.{
             .files = macos_sources,
-            .flags = &.{
-                "-O3",                     "-gdwarf-4",            "-Wall",
-                "-Wno-pointer-sign",       "-Wno-char-subscripts", "-fPIC",
-                "-fno-omit-frame-pointer", "-fvisibility=hidden",
-            },
+            .flags = pic_cflags,
         });
     }
 
     // Allow __DATE__/__TIME__ (warning rather than error)
     if (tgt.os.tag == .windows) {
-        exe.addCSourceFile(.{ .file = b.path("src/game/version.c"), .flags = &.{ "-Wno-error=date-time", "-Dmain=SDL_main", "-DSTORE_UNIQUE", "-DENABLE_CRASH_HANDLER", "-DENABLE_SHAREDMEM", "-DENABLE_DRAGHACK" } });
+        exe.addCSourceFile(.{ .file = b.path("src/game/version.c"), .flags = &.{ "-Wno-error=date-time", "-Dmain=SDL_main", "-DSTORE_UNIQUE", "-DENABLE_CRASH_HANDLER", "-DENABLE_SHAREDMEM", "-DENABLE_DRAGHACK", "-DUSE_MIMALLOC=1" } });
     } else {
-        exe.addCSourceFile(.{ .file = b.path("src/game/version.c"), .flags = &.{"-Wno-error=date-time"} });
+        exe.addCSourceFile(.{ .file = b.path("src/game/version.c"), .flags = &.{ "-Wno-error=date-time", "-DUSE_MIMALLOC=1" } });
     }
 
     exe.root_module.addIncludePath(b.path(include_root));
     exe.root_module.addIncludePath(b.path(src_root));
+
+    // Add DEVELOPER macro if developer mode is enabled
+    if (developer) {
+        exe.root_module.addCMacro("DEVELOPER", "1");
+    }
 
     // Link libs (Makefile equivalent: -lwsock32 -lws2_32 -lz -lpng -lzip -ldwarfstack $(SDL_LIBS) -lSDL2_mixer)
     linkCommonLibs(b, exe, tgt);
@@ -254,10 +311,13 @@ pub fn build(b: *std.Build) void {
     if (tgt.os.tag == .windows) {
         amod.addCSourceFile(.{ .file = b.path("src/amod/amod.c"), .flags = win_cflags });
     } else {
-        amod.addCSourceFile(.{ .file = b.path("src/amod/amod.c"), .flags = &.{ "-O3", "-gdwarf-4", "-Wall" } });
+        amod.addCSourceFile(.{ .file = b.path("src/amod/amod.c"), .flags = base_cflags });
     }
     amod.root_module.addIncludePath(b.path(include_root));
     amod.root_module.addIncludePath(b.path(src_root));
+    if (developer) {
+        amod.root_module.addCMacro("DEVELOPER", "1");
+    }
     addSearchPathsForWindowsTarget(b, amod, tgt, host);
     linkCommonLibs(b, amod, tgt);
 
@@ -308,6 +368,7 @@ fn linkCommonLibs(b: *std.Build, step: *std.Build.Step.Compile, tgt: std.Target)
         linkSystemLibraryPreferDynamic(b, step, "dwarfstack", tgt);
         linkSystemLibraryPreferDynamic(b, step, "SDL2", tgt);
         linkSystemLibraryPreferDynamic(b, step, "SDL2_mixer", tgt);
+        linkSystemLibraryPreferDynamic(b, step, "mimalloc", tgt);
     } else {
         // Linux or OSX
         step.root_module.linkSystemLibrary("z", .{});
@@ -315,6 +376,7 @@ fn linkCommonLibs(b: *std.Build, step: *std.Build.Step.Compile, tgt: std.Target)
         step.root_module.linkSystemLibrary("zip", .{});
         step.root_module.linkSystemLibrary("SDL2", .{});
         step.root_module.linkSystemLibrary("SDL2_mixer", .{});
+        step.root_module.linkSystemLibrary("mimalloc", .{});
         step.root_module.linkSystemLibrary("m", .{});
     }
 }

@@ -294,14 +294,15 @@ static int handle_captured_button(void)
 {
 	if (capbut != -1) {
 		if (capbut == BUT_GLD) {
-			takegold += (mousedy / 2) * (mousedy / 2) * (mousedy <= 0 ? 1 : -1);
-
-			if (takegold < 0) {
-				takegold = 0;
+			int64_t takegold_signed = (int64_t)takegold;
+			takegold_signed += (mousedy / 2) * (mousedy / 2) * (mousedy <= 0 ? 1 : -1);
+			if (takegold_signed < 0) {
+				takegold_signed = 0;
 			}
-			if (takegold > gold) {
-				takegold = gold;
+			if (takegold_signed > (int64_t)gold) {
+				takegold_signed = (int64_t)gold;
 			}
+			takegold = (uint32_t)takegold_signed;
 
 			mousedy = 0;
 		}
@@ -314,8 +315,9 @@ static void detect_hover_target(void)
 {
 	int i, x, y;
 
-	butsel = mapsel = itmsel = chrsel = invsel = weasel = consel = sklsel = sklsel2 = telsel = helpsel = colsel =
-	    skl_look_sel = questsel = actsel = -1;
+	butsel = invsel = weasel = consel = sklsel = sklsel2 = telsel = helpsel = colsel = skl_look_sel = questsel =
+	    actsel = -1;
+	mapsel = itmsel = chrsel = MAXMN;
 
 	if ((display_help || display_quest) && mousex >= dotx(DOT_HLP) && mousex <= dotx(DOT_HL2) - 40 &&
 	    mousey >= doty(DOT_HLP) && mousey <= doty(DOT_HLP) + 12) {
@@ -427,24 +429,24 @@ static void detect_hover_target(void)
 	    mousey < doty(DOT_MBR)) {
 		if (action_ovr == 13) {
 			itmsel = get_near_item(mousex, mousey, CMF_USE | CMF_TAKE, 3);
-			if (itmsel == -1) {
+			if (itmsel == MAXMN) {
 				chrsel = get_near_char(mousex, mousey, 3);
 			}
-			if (itmsel == -1 && chrsel == -1) {
+			if (itmsel == MAXMN && chrsel == MAXMN) {
 				mapsel = get_near_ground(mousex, mousey);
 			}
 		} else {
 			if (vk_char || (action_ovr != -1 && (action_ovr != 11 || csprite) && action_ovr != 2)) {
 				chrsel = get_near_char(mousex, mousey, vk_char ? MAPDX : 3);
 			}
-			if (chrsel == -1 && (vk_item || action_ovr == 11)) {
+			if (chrsel == MAXMN && (vk_item || action_ovr == 11)) {
 				itmsel = get_near_item(mousex, mousey, CMF_USE | CMF_TAKE, csprite ? 0 : MAPDX);
 			}
-			if (chrsel == -1 && itmsel == -1 && !vk_char && (!vk_item || csprite)) {
+			if (chrsel == MAXMN && itmsel == MAXMN && !vk_char && (!vk_item || csprite)) {
 				mapsel = get_near_ground(mousex, mousey);
 			}
 
-			if (mapsel != -1 || itmsel != -1 || chrsel != -1) {
+			if (mapsel != MAXMN || itmsel != MAXMN || chrsel != MAXMN) {
 				butsel = BUT_MAP;
 			}
 		}
@@ -489,20 +491,25 @@ void exec_cmd(int cmd, int a)
 		return;
 
 	case CMD_MAP_MOVE:
-		cmd_move(originx - MAPDX / 2 + mapsel % MAPDX, originy - MAPDY / 2 + mapsel / MAPDX);
+		cmd_move(
+		    originx - (int)(MAPDX / 2U) + (int)(mapsel % MAPDX), originy - (int)(MAPDY / 2U) + (int)(mapsel / MAPDX));
 		return;
 	case CMD_MAP_DROP:
-		cmd_drop(originx - MAPDX / 2 + mapsel % MAPDX, originy - MAPDY / 2 + mapsel / MAPDX);
+		cmd_drop(
+		    originx - (int)(MAPDX / 2U) + (int)(mapsel % MAPDX), originy - (int)(MAPDY / 2U) + (int)(mapsel / MAPDX));
 		return;
 
 	case CMD_ITM_TAKE:
-		cmd_take(originx - MAPDX / 2 + itmsel % MAPDX, originy - MAPDY / 2 + itmsel / MAPDX);
+		cmd_take(
+		    originx - (int)(MAPDX / 2U) + (int)(itmsel % MAPDX), originy - (int)(MAPDY / 2U) + (int)(itmsel / MAPDX));
 		return;
 	case CMD_ITM_USE:
-		cmd_use(originx - MAPDX / 2 + itmsel % MAPDX, originy - MAPDY / 2 + itmsel / MAPDX);
+		cmd_use(
+		    originx - (int)(MAPDX / 2U) + (int)(itmsel % MAPDX), originy - (int)(MAPDY / 2U) + (int)(itmsel / MAPDX));
 		return;
 	case CMD_ITM_USE_WITH:
-		cmd_use(originx - MAPDX / 2 + itmsel % MAPDX, originy - MAPDY / 2 + itmsel / MAPDX);
+		cmd_use(
+		    originx - (int)(MAPDX / 2U) + (int)(itmsel % MAPDX), originy - (int)(MAPDY / 2U) + (int)(itmsel / MAPDX));
 		return;
 
 	case CMD_CHR_ATTACK:
@@ -564,10 +571,12 @@ void exec_cmd(int cmd, int a)
 		return;
 
 	case CMD_MAP_LOOK:
-		cmd_look_map(originx - MAPDX / 2 + mapsel % MAPDX, originy - MAPDY / 2 + mapsel / MAPDX);
+		cmd_look_map(
+		    originx - (int)(MAPDX / 2U) + (int)(mapsel % MAPDX), originy - (int)(MAPDY / 2U) + (int)(mapsel / MAPDX));
 		return;
 	case CMD_ITM_LOOK:
-		cmd_look_item(originx - MAPDX / 2 + itmsel % MAPDX, originy - MAPDY / 2 + itmsel / MAPDX);
+		cmd_look_item(
+		    originx - (int)(MAPDX / 2U) + (int)(itmsel % MAPDX), originy - (int)(MAPDY / 2U) + (int)(itmsel / MAPDX));
 		return;
 	case CMD_CHR_LOOK:
 		cmd_look_char(map[chrsel].cn);
@@ -586,19 +595,23 @@ void exec_cmd(int cmd, int a)
 		return;
 
 	case CMD_MAP_CAST_L:
-		cmd_some_spell(CL_FIREBALL, originx - MAPDX / 2 + mapsel % MAPDX, originy - MAPDY / 2 + mapsel / MAPDX, 0);
+		cmd_some_spell(CL_FIREBALL, originx - (int)(MAPDX / 2U) + (int)(mapsel % MAPDX),
+		    originy - (int)(MAPDY / 2U) + (int)(mapsel / MAPDX), 0);
 		break;
 	case CMD_ITM_CAST_L:
-		cmd_some_spell(CL_FIREBALL, originx - MAPDX / 2 + itmsel % MAPDX, originy - MAPDY / 2 + itmsel / MAPDX, 0);
+		cmd_some_spell(CL_FIREBALL, originx - (int)(MAPDX / 2U) + (int)(itmsel % MAPDX),
+		    originy - (int)(MAPDY / 2U) + (int)(itmsel / MAPDX), 0);
 		break;
 	case CMD_CHR_CAST_L:
 		cmd_some_spell(CL_FIREBALL, 0, 0, map[chrsel].cn);
 		break;
 	case CMD_MAP_CAST_R:
-		cmd_some_spell(CL_BALL, originx - MAPDX / 2 + mapsel % MAPDX, originy - MAPDY / 2 + mapsel / MAPDX, 0);
+		cmd_some_spell(CL_BALL, originx - (int)(MAPDX / 2U) + (int)(mapsel % MAPDX),
+		    originy - (int)(MAPDY / 2U) + (int)(mapsel / MAPDX), 0);
 		break;
 	case CMD_ITM_CAST_R:
-		cmd_some_spell(CL_BALL, originx - MAPDX / 2 + itmsel % MAPDX, originy - MAPDY / 2 + itmsel / MAPDX, 0);
+		cmd_some_spell(CL_BALL, originx - (int)(MAPDX / 2U) + (int)(itmsel % MAPDX),
+		    originy - (int)(MAPDY / 2U) + (int)(itmsel / MAPDX), 0);
 		break;
 	case CMD_CHR_CAST_R:
 		cmd_some_spell(CL_BALL, 0, 0, map[chrsel].cn);
@@ -608,7 +621,8 @@ void exec_cmd(int cmd, int a)
 		cmd_some_spell(a, 0, 0, map[plrmn].cn);
 		break;
 	case CMD_MAP_CAST_K:
-		cmd_some_spell(a, originx - MAPDX / 2 + mapsel % MAPDX, originy - MAPDY / 2 + mapsel / MAPDX, 0);
+		cmd_some_spell(a, originx - (int)(MAPDX / 2U) + (int)(mapsel % MAPDX),
+		    originy - (int)(MAPDY / 2U) + (int)(mapsel / MAPDX), 0);
 		break;
 	case CMD_CHR_CAST_K:
 		cmd_some_spell(a, 0, 0, map[chrsel].cn);
@@ -893,11 +907,17 @@ static void update_window_title(void)
 	static char title[256];
 	char buf[256];
 
-	plrmn = mapmn(MAPDX / 2, MAPDY / 2);
+	plrmn = (int)mapmn(MAPDX / 2, MAPDY / 2);
 
-	sprintf(buf, "%s - Astonia 3 v%d.%d.%d - (%s:%u)",
+#ifdef DEVELOPER
+	sprintf(buf, "DEVELOPER %s - Astonia 3 v%d.%d.%d - (%s:%u)",
 	    (map[plrmn].cn && player[map[plrmn].cn].name[0]) ? player[map[plrmn].cn].name : "Someone",
 	    (VERSION >> 16) & 255, (VERSION >> 8) & 255, (VERSION) & 255, target_server, (unsigned int)target_port);
+#else
+	sprintf(buf, "%s - Astonia 3 v%d.%d.%d",
+	    (map[plrmn].cn && player[map[plrmn].cn].name[0]) ? player[map[plrmn].cn].name : "Someone",
+	    (VERSION >> 16) & 255, (VERSION >> 8) & 255, (VERSION) & 255);
+#endif
 	if (strcmp(title, buf)) {
 		strcpy(title, buf);
 		sdl_set_title(title);
@@ -940,14 +960,14 @@ void calculate_lcmd_logic(void)
 	}
 
 	if (action_ovr != -1) {
-		if (action_ovr == 0 && chrsel != -1) {
+		if (action_ovr == 0 && chrsel != MAXMN) {
 			lcmd = CMD_CHR_ATTACK;
-		} else if (action_ovr == 1 && chrsel != -1) {
+		} else if (action_ovr == 1 && chrsel != MAXMN) {
 			lcmd = CMD_CHR_CAST_L;
 		} else if (action_ovr == 2) {
 			lcmd = CMD_MAP_CAST_R;
 		} else if (action_ovr == 11) {
-			if (itmsel != -1) {
+			if (itmsel != MAXMN) {
 				if (map[itmsel].flags & CMF_TAKE) { // take needs to come first as dropped items can be usable
 					lcmd = CMD_ITM_TAKE;
 				} else if (map[itmsel].flags & CMF_USE) {
@@ -957,42 +977,42 @@ void calculate_lcmd_logic(void)
 						lcmd = CMD_ITM_USE;
 					}
 				}
-			} else if (chrsel != -1 && csprite) {
+			} else if (chrsel != MAXMN && csprite) {
 				lcmd = CMD_CHR_GIVE;
-			} else if (mapsel != -1 && csprite) {
+			} else if (mapsel != MAXMN && csprite) {
 				lcmd = CMD_MAP_DROP;
 			}
 		} else if (action_ovr == 13) {
-			if (itmsel != -1) {
+			if (itmsel != MAXMN) {
 				lcmd = CMD_ITM_LOOK;
-			} else if (chrsel != -1) {
+			} else if (chrsel != MAXMN) {
 				lcmd = CMD_CHR_LOOK;
-			} else if (mapsel != -1) {
+			} else if (mapsel != MAXMN) {
 				lcmd = CMD_MAP_LOOK;
 			}
 		}
 	} else {
-		if (mapsel != -1 && !vk_item && !vk_char) {
+		if (mapsel != MAXMN && !vk_item && !vk_char) {
 			lcmd = CMD_MAP_MOVE;
 		}
-		if (mapsel != -1 && vk_item && !vk_char && csprite) {
+		if (mapsel != MAXMN && vk_item && !vk_char && csprite) {
 			lcmd = CMD_MAP_DROP;
 		}
 
-		if (itmsel != -1 && vk_item && !vk_char && !csprite && map[itmsel].flags & CMF_USE) {
+		if (itmsel != MAXMN && vk_item && !vk_char && !csprite && map[itmsel].flags & CMF_USE) {
 			lcmd = CMD_ITM_USE;
 		}
-		if (itmsel != -1 && vk_item && !vk_char && !csprite && map[itmsel].flags & CMF_TAKE) {
+		if (itmsel != MAXMN && vk_item && !vk_char && !csprite && map[itmsel].flags & CMF_TAKE) {
 			lcmd = CMD_ITM_TAKE;
 		}
-		if (itmsel != -1 && vk_item && !vk_char && csprite && map[itmsel].flags & CMF_USE) {
+		if (itmsel != MAXMN && vk_item && !vk_char && csprite && map[itmsel].flags & CMF_USE) {
 			lcmd = CMD_ITM_USE_WITH;
 		}
 
-		if (chrsel != -1 && !vk_item && vk_char && !csprite) {
+		if (chrsel != MAXMN && !vk_item && vk_char && !csprite) {
 			lcmd = CMD_CHR_ATTACK;
 		}
-		if (chrsel != -1 && !vk_item && vk_char && csprite) {
+		if (chrsel != MAXMN && !vk_item && vk_char && csprite) {
 			lcmd = CMD_CHR_GIVE;
 		}
 	}
@@ -1106,13 +1126,13 @@ void calculate_rcmd_logic(void)
 		if (con_cnt == 0 && skl_look_sel != -1) {
 			rcmd = CMD_SKL_LOOK;
 		} else if (!vk_spell) {
-			if (mapsel != -1) {
+			if (mapsel != MAXMN) {
 				rcmd = CMD_MAP_LOOK;
 			}
-			if (itmsel != -1) {
+			if (itmsel != MAXMN) {
 				rcmd = CMD_ITM_LOOK;
 			}
-			if (chrsel != -1) {
+			if (chrsel != MAXMN) {
 				rcmd = CMD_CHR_LOOK;
 			}
 			if (context_key_enabled()) {
@@ -1134,13 +1154,13 @@ void calculate_rcmd_logic(void)
 				}
 			}
 		} else {
-			if (mapsel != -1) {
+			if (mapsel != MAXMN) {
 				rcmd = CMD_MAP_CAST_R;
 			}
-			if (itmsel != -1) {
+			if (itmsel != MAXMN) {
 				rcmd = CMD_ITM_CAST_R;
 			}
-			if (chrsel != -1) {
+			if (chrsel != MAXMN) {
 				rcmd = CMD_CHR_CAST_R;
 			}
 		}

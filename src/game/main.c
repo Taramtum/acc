@@ -9,7 +9,10 @@
  */
 
 #include <stdint.h>
+#include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
 #include <time.h>
 #include <SDL2/SDL.h>
 #ifdef _WIN32
@@ -24,12 +27,24 @@
 #include "client/client.h"
 #include "modder/modder.h"
 
+// Forward declarations
+void xlog(FILE *logfp, char *format, ...) __attribute__((format(printf, 2, 3)));
+void addlinesep(void);
+int rread(FILE *fp, void *ptr, size_t size);
+char *load_ascii_file(char *filename, uint8_t ID);
+void rrandomize(void);
+void display_usage(void);
+int parse_args(int argc, char *argv[]);
+void load_options(void);
+void init_logging(void);
+void determine_resolution(void);
+
 int quit = 0;
 
 char *localdata;
 
 static int panic_reached = 0;
-static int xmemcheck_failed = 0;
+int xmemcheck_failed = 0;
 char user_keys[10] = {'Q', 'W', 'E', 'A', 'S', 'D', 'Z', 'X', 'C', 'V'};
 
 DLL_EXPORT uint64_t game_options = GO_NOTSET;
@@ -163,15 +178,12 @@ DLL_EXPORT void addline(const char *format, ...)
 
 // io
 
-int rread(FILE *fp, void *ptr, int size)
+int rread(FILE *fp, void *ptr, size_t size)
 {
-	int n;
+	size_t n;
 
 	while (size > 0) {
 		n = fread(ptr, 1, size, fp);
-		if (n < 0) {
-			return -1;
-		}
 		if (n == 0) {
 			return 1;
 		}
@@ -181,10 +193,10 @@ int rread(FILE *fp, void *ptr, int size)
 	return 0;
 }
 
-char *load_ascii_file(char *filename, int ID)
+char *load_ascii_file(char *filename, uint8_t ID)
 {
 	FILE *fp;
-	int size;
+	size_t size;
 	char *ptr;
 
 	if (!(fp = fopen(filename, "rb"))) {
@@ -194,7 +206,14 @@ char *load_ascii_file(char *filename, int ID)
 		fclose(fp);
 		return NULL;
 	}
-	size = ftell(fp);
+	{
+		long file_size = ftell(fp);
+		if (file_size < 0) {
+			fclose(fp);
+			return NULL;
+		}
+		size = (size_t)file_size;
+	}
 	if (fseek(fp, 0, SEEK_SET) != 0) {
 		fclose(fp);
 		return NULL;
@@ -211,341 +230,11 @@ char *load_ascii_file(char *filename, int ID)
 	return ptr;
 }
 
-// memory
-
-int memused = 0;
-int memptrused = 0;
-
-int maxmemsize = 0;
-int maxmemptrs = 0;
-int memptrs[MAX_MEM];
-int memsize[MAX_MEM];
-
-struct memhead {
-	int size;
-	int ID;
-};
-
-// TODO: removed unused memory areas
-static char *memname[MAX_MEM] = {"MEM_TOTA", // 0
-    "MEM_GLOB", "MEM_TEMP", "MEM_ELSE", "MEM_DL",
-    "MEM_IC", // 5
-    "MEM_SC", "MEM_VC", "MEM_PC", "MEM_GUI",
-    "MEM_GAME", // 10
-    "MEM_TEMP11", "MEM_VPC", "MEM_VSC", "MEM_VLC", "MEM_SDL_BASE", "MEM_SDL_PIXEL", "MEM_SDL_PNG", "MEM_SDL_PIXEL2",
-    "MEM_TEMP5", "MEM_TEMP6", "MEM_TEMP7", "MEM_TEMP8", "MEM_TEMP9", "MEM_TEMP10"};
-
-unsigned long long get_total_system_memory(void);
-
-void list_mem(void)
-{
-	int i, flag = 0;
-	long long mem_tex = sdl_get_mem_tex();
-
-	note("--mem----------------------");
-	for (i = 1; i < MAX_MEM; i++) {
-		if (memsize[i] || memptrs[i]) {
-			flag = 1;
-			note("%s %.2fMB in %d ptrs", memname[i], memsize[i] / (1024.0 * 1024.0), memptrs[i]);
-		}
-	}
-	if (flag) {
-		note("%s %.2fMB in %d ptrs", memname[0], memsize[0] / (1024.0 * 1024.0), memptrs[0]);
-	}
-	note("%s %.2fMB in %d ptrs", "MEM_MAX", maxmemsize / (1024.0 * 1024.0), maxmemptrs);
-	note("---------------------------");
-	note("Texture Cache: %.2fMB", mem_tex / (1024.0 * 1024.0));
-
-	note("UsedMem=%.2fG of %.2fG", (memused + mem_tex) / 1024.0 / 1024.0 / 1024.0,
-	    get_total_system_memory() / 1024.0 / 1024.0 / 1024.0);
-}
-
-static int memcheckset = 0;
-static unsigned char memcheck[256];
-
-int xmemcheck(void *ptr)
-{
-	struct memhead *mem;
-	unsigned char *head, *tail, *rptr;
-
-	if (!ptr) {
-		return 0;
-	}
-
-	mem = (struct memhead *)(((unsigned char *)(ptr)) - 8 - sizeof(memcheck));
-
-	// ID check
-	if (mem->ID >= MAX_MEM) {
-		note("xmemcheck: ill mem id (%d)", mem->ID);
-		xmemcheck_failed = 1;
-		return -1;
-	}
-
-	// border check
-	head = ((unsigned char *)(mem)) + 8;
-	rptr = ((unsigned char *)(mem)) + 8 + sizeof(memcheck);
-	tail = ((unsigned char *)(mem)) + 8 + sizeof(memcheck) + mem->size;
-
-	if (memcmp(head, memcheck, sizeof(memcheck))) {
-		fail("xmemcheck: ill head in %s (ptr=%p)", memname[mem->ID], rptr);
-		xmemcheck_failed = 1;
-		return -1;
-	}
-	if (memcmp(tail, memcheck, sizeof(memcheck))) {
-		fail("xmemcheck: ill tail in %s (ptr=%p)", memname[mem->ID], rptr);
-		xmemcheck_failed = 1;
-		return -1;
-	}
-
-	return 0;
-}
-
-void *xmalloc(int size, int ID)
-{
-	struct memhead *mem;
-	unsigned char *head, *tail, *rptr;
-
-	if (!memcheckset) {
-		for (memcheckset = 0; memcheckset < sizeof(memcheck); memcheckset++) {
-			memcheck[memcheckset] = rrand(256);
-		}
-		sprintf(memcheck, "!MEMCKECK MIGHT FAIL!");
-	}
-
-	if (!size) {
-		return NULL;
-	}
-
-	memptrused++;
-
-	mem = calloc(1, 8 + sizeof(memcheck) + size + sizeof(memcheck));
-	if (!mem) {
-		fail("OUT OF MEMORY !!!");
-		return NULL;
-	}
-
-	memused += 8 + sizeof(memcheck) + size + sizeof(memcheck);
-
-	if (ID >= MAX_MEM) {
-		fail("xmalloc: ill mem id");
-		return NULL;
-	}
-
-	mem->ID = ID;
-	mem->size = size;
-	memsize[mem->ID] += mem->size;
-	memptrs[mem->ID] += 1;
-	memsize[0] += mem->size;
-	memptrs[0] += 1;
-
-	if (memsize[0] > maxmemsize) {
-		maxmemsize = memsize[0];
-	}
-	if (memptrs[0] > maxmemptrs) {
-		maxmemptrs = memptrs[0];
-	}
-
-	head = ((unsigned char *)(mem)) + 8;
-	rptr = ((unsigned char *)(mem)) + 8 + sizeof(memcheck);
-	tail = ((unsigned char *)(mem)) + 8 + sizeof(memcheck) + mem->size;
-
-	// set memcheck
-	memcpy(head, memcheck, sizeof(memcheck));
-	memcpy(tail, memcheck, sizeof(memcheck));
-
-	xmemcheck(rptr);
-
-	return rptr;
-}
-
-static void update_mem_stats_add(int ID, int size)
-{
-	memsize[ID] += size;
-	memptrs[ID] += 1;
-	memsize[0] += size;
-	memptrs[0] += 1;
-
-	if (memsize[0] > maxmemsize) {
-		maxmemsize = memsize[0];
-	}
-	if (memptrs[0] > maxmemptrs) {
-		maxmemptrs = memptrs[0];
-	}
-
-	memused += 8 + sizeof(memcheck) + size + sizeof(memcheck);
-	memptrused++;
-}
-
-static void update_mem_stats_remove(int ID, int size)
-{
-	memsize[ID] -= size;
-	memptrs[ID] -= 1;
-	memsize[0] -= size;
-	memptrs[0] -= 1;
-
-	memused -= 8 + sizeof(memcheck) + size + sizeof(memcheck);
-	memptrused--;
-}
-
-char *xstrdup(const char *src, int ID)
-{
-	int size;
-	char *dst;
-
-	size = strlen(src) + 1;
-
-	dst = xmalloc(size, ID);
-	if (!dst) {
-		return NULL;
-	}
-
-	memcpy(dst, src, size);
-
-	return dst;
-}
-
-void xfree(void *ptr)
-{
-	struct memhead *mem;
-
-	if (!ptr) {
-		return;
-	}
-	if (xmemcheck(ptr)) {
-		return;
-	}
-
-	// get mem
-	mem = (struct memhead *)(((unsigned char *)(ptr)) - 8 - sizeof(memcheck));
-
-	update_mem_stats_remove(mem->ID, mem->size);
-
-	// free
-	free(mem);
-}
-
-void xinfo(void *ptr)
-{
-	struct memhead *mem;
-
-	if (!ptr) {
-		printf("NULL");
-		return;
-	}
-	if (xmemcheck(ptr)) {
-		printf("ILL");
-		return;
-	}
-
-	// get mem
-	mem = (struct memhead *)(((unsigned char *)(ptr)) - 8 - sizeof(memcheck));
-
-	printf("%d bytes", mem->size);
-}
-
-void *xrealloc(void *ptr, int size, int ID)
-{
-	struct memhead *mem;
-	unsigned char *head, *tail, *rptr;
-
-	if (!ptr) {
-		return xmalloc(size, ID);
-	}
-	if (!size) {
-		xfree(ptr);
-		return NULL;
-	}
-	if (xmemcheck(ptr)) {
-		return NULL;
-	}
-
-	mem = (struct memhead *)(((unsigned char *)(ptr)) - 8 - sizeof(memcheck));
-
-	int old_ID = mem->ID;
-	int old_size = mem->size;
-	update_mem_stats_remove(old_ID, old_size);
-
-	// realloc
-	struct memhead *new_mem = realloc(mem, 8 + sizeof(memcheck) + size + sizeof(memcheck));
-	if (!new_mem) {
-		// Restore counters since realloc failed
-		update_mem_stats_add(old_ID, old_size);
-		fail("xrealloc: OUT OF MEMORY !!!");
-		return NULL;
-	}
-	mem = new_mem;
-
-	update_mem_stats_add(ID, size);
-	mem->ID = ID; // Update ID in case it changed
-	mem->size = size;
-
-	head = ((unsigned char *)(mem)) + 8;
-	rptr = ((unsigned char *)(mem)) + 8 + sizeof(memcheck);
-	tail = ((unsigned char *)(mem)) + 8 + sizeof(memcheck) + mem->size;
-
-	// set memcheck
-	memcpy(head, memcheck, sizeof(memcheck));
-	memcpy(tail, memcheck, sizeof(memcheck));
-
-	return rptr;
-}
-
-void *xrecalloc(void *ptr, int size, int ID)
-{
-	struct memhead *mem;
-	unsigned char *head, *tail, *rptr;
-
-	if (!ptr) {
-		return xmalloc(size, ID);
-	}
-	if (!size) {
-		xfree(ptr);
-		return NULL;
-	}
-	if (xmemcheck(ptr)) {
-		return NULL;
-	}
-
-	mem = (struct memhead *)(((unsigned char *)(ptr)) - 8 - sizeof(memcheck));
-
-	int old_ID = mem->ID;
-	int old_size = mem->size;
-	update_mem_stats_remove(old_ID, old_size);
-
-	// realloc
-	struct memhead *new_mem = realloc(mem, 8 + sizeof(memcheck) + size + sizeof(memcheck));
-	if (!new_mem) {
-		// Restore counters since realloc failed
-		update_mem_stats_add(old_ID, old_size);
-		fail("xrecalloc: OUT OF MEMORY !!!");
-		return NULL;
-	}
-	mem = new_mem;
-
-	if (size - old_size > 0) {
-		bzero(((unsigned char *)(mem)) + 8 + sizeof(memcheck) + old_size, size - old_size);
-	}
-
-	update_mem_stats_add(ID, size);
-	mem->ID = ID; // Update ID in case it changed
-	mem->size = size;
-
-	head = ((unsigned char *)(mem)) + 8;
-	rptr = ((unsigned char *)(mem)) + 8 + sizeof(memcheck);
-	tail = ((unsigned char *)(mem)) + 8 + sizeof(memcheck) + mem->size;
-
-	// set memcheck
-	memcpy(head, memcheck, sizeof(memcheck));
-	memcpy(tail, memcheck, sizeof(memcheck));
-
-	return rptr;
-}
-
 // rrandom
 
 void rrandomize(void)
 {
-	srand(time(NULL));
+	srand((unsigned int)time(NULL));
 }
 
 int rrand(int range)
@@ -565,12 +254,12 @@ void display_usage(void)
 	char *buf;
 	int size = 4096;
 
-	buf = xmalloc(size, MEM_TEMP);
+	buf = xmalloc((size_t)size, MEM_TEMP);
 	if (!buf) {
 		return;
 	}
 
-	snprintf(buf, size,
+	snprintf(buf, (size_t)size,
 	    "The Astonia Client can only be started from the command line or with a specially created shortcut.\n\n"
 	    "Usage: moac -u playername -p password -d url\n ... [-w width] [-h height]\n"
 	    " ... [-m threads] [-o options] [-c cachesize]\n ... [-k framespersecond]\n\n"
@@ -618,7 +307,7 @@ int parse_args(int argc, char *argv[])
 			continue;
 		}
 
-		char opt = tolower(arg[1]);
+		char opt = (char)tolower(arg[1]);
 		char *val = NULL;
 
 		if (arg[2] != '\0') {
@@ -660,7 +349,12 @@ int parse_args(int argc, char *argv[])
 				val = argv[++i];
 			}
 			if (val) {
-				want_height = strtol(val, &end, 10);
+				long h = strtol(val, &end, 10);
+				if (h < INT_MIN || h > INT_MAX) {
+					want_height = 0;
+				} else {
+					want_height = (int)h;
+				}
 			}
 			break;
 		case 'w':
@@ -668,7 +362,12 @@ int parse_args(int argc, char *argv[])
 				val = argv[++i];
 			}
 			if (val) {
-				want_width = strtol(val, &end, 10);
+				long w = strtol(val, &end, 10);
+				if (w < INT_MIN || w > INT_MAX) {
+					want_width = 0;
+				} else {
+					want_width = (int)w;
+				}
 			}
 			break;
 		case 'm':
@@ -676,7 +375,12 @@ int parse_args(int argc, char *argv[])
 				val = argv[++i];
 			}
 			if (val) {
-				sdl_multi = strtol(val, &end, 10);
+				long m = strtol(val, &end, 10);
+				if (m < INT_MIN || m > INT_MAX) {
+					sdl_multi = 0;
+				} else {
+					sdl_multi = (int)m;
+				}
 			}
 			break;
 		case 'o':
@@ -692,7 +396,12 @@ int parse_args(int argc, char *argv[])
 				val = argv[++i];
 			}
 			if (val) {
-				sdl_cache_size = strtol(val, &end, 10);
+				long c = strtol(val, &end, 10);
+				if (c < INT_MIN || c > INT_MAX) {
+					sdl_cache_size = 0;
+				} else {
+					sdl_cache_size = (int)c;
+				}
 			}
 			break;
 		case 'k':
@@ -700,7 +409,12 @@ int parse_args(int argc, char *argv[])
 				val = argv[++i];
 			}
 			if (val) {
-				frames_per_second = strtol(val, &end, 10);
+				long f = strtol(val, &end, 10);
+				if (f < INT_MIN || f > INT_MAX) {
+					frames_per_second = 0;
+				} else {
+					frames_per_second = (int)f;
+				}
 			}
 			break;
 		case 't':
@@ -708,7 +422,12 @@ int parse_args(int argc, char *argv[])
 				val = argv[++i];
 			}
 			if (val) {
-				server_port = strtol(val, &end, 10);
+				long p = strtol(val, &end, 10);
+				if (p < INT_MIN || p > INT_MAX) {
+					server_port = 0;
+				} else {
+					server_port = (int)p;
+				}
 			}
 			break;
 		default:
@@ -766,8 +485,6 @@ void load_options(void)
 
 	actions_loaded();
 }
-
-void register_crash_handler(void);
 
 void init_logging(void)
 {
@@ -828,6 +545,12 @@ void determine_resolution(void)
 // main
 int main(int argc, char *argv[])
 {
+#if USE_MIMALLOC
+	// Configure SDL to use mimalloc for all its internal allocations
+	// This MUST be called before any SDL function, including SDL_GetPrefPath()
+	SDL_SetMemoryFunctions(MALLOC, CALLOC, REALLOC, FREE);
+#endif
+
 	int ret;
 	char buf[80];
 
@@ -854,7 +577,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	xlog(errorfp, "Client started with -h%d -w%d -o%llu", want_height, want_width, game_options);
+	xlog(errorfp, "Client started with -h%d -w%d -o%" PRIu64, want_height, want_width, game_options);
 
 #ifdef _WIN32
 	SetProcessDPIAware();
@@ -863,7 +586,11 @@ int main(int argc, char *argv[])
 	target_server = server_url;
 
 	if (server_port) {
-		target_port = server_port;
+		if (server_port < 0 || server_port > UINT16_MAX) {
+			target_port = 0;
+		} else {
+			target_port = (uint16_t)server_port;
+		}
 	}
 
 	// init random

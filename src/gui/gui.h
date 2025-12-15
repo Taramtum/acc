@@ -2,15 +2,16 @@
  * Part of Astonia Client (c) Daniel Brockhaus. Please read license.txt.
  */
 
+#include <stdio.h>
 #include "dll.h"
 
 #define MAXACTIONSLOT 14
 
 struct quicks {
-	int mn[9]; // 0 for invalid neighbours
+	map_index_t mn[9]; // 0 for invalid neighbours
 	int qi[9]; // maxqick for invalid neighbours
-	int mapx;
-	int mapy;
+	unsigned int mapx;
+	unsigned int mapy;
 	int cx;
 	int cy;
 };
@@ -24,9 +25,9 @@ extern int mapaddx, mapaddy;
 extern int mapoffx, mapoffy;
 extern int mapaddx, mapaddy; // small offset to smoothen walking
 extern int plrmn; // mn of player
-extern int itmsel; // mn
-extern int chrsel; // mn
-extern int mapsel; // mn
+extern map_index_t itmsel; // mn
+extern map_index_t chrsel; // mn
+extern map_index_t mapsel; // mn
 
 DLL_EXPORT extern unsigned short int healthcolor, manacolor, endurancecolor, shieldcolor;
 DLL_EXPORT extern unsigned short int whitecolor, lightgraycolor, graycolor, darkgraycolor, blackcolor;
@@ -42,7 +43,7 @@ extern int show_tutor;
 extern char tutor_text[1024];
 extern int show_look;
 
-void mtos(int mapx, int mapy, int *scrx, int *scry);
+void mtos(unsigned int mapx, unsigned int mapy, int *scrx, int *scry);
 int stom(int scrx, int scry, int *mapx, int *mapy);
 void set_mapoff(int cx, int cy, int mdx, int mdy);
 void set_mapadd(int addx, int addy);
@@ -51,6 +52,9 @@ void update_user_keys(void);
 int main_init(void);
 int main_loop(void);
 void main_exit(void);
+void gui_dump(FILE *fp);
+void gui_sdl_keyproc(int wparam);
+void gui_sdl_mouseproc(int x, int y, int what);
 
 extern int (*get_skltab_sep)(int i);
 DLL_EXPORT int _get_skltab_sep(int i);
@@ -59,7 +63,7 @@ DLL_EXPORT int _get_skltab_index(int n);
 extern int (*get_skltab_show)(int i);
 DLL_EXPORT int _get_skltab_show(int i);
 
-int context_getnm(void);
+map_index_t context_getnm(void);
 int context_action_enabled(void);
 int hover_capture_text(char *line);
 void hover_capture_tick(void);
@@ -93,3 +97,6 @@ extern int questonscreen[10];
 DLL_EXPORT extern int *game_questcount;
 extern int gear_lock;
 extern int last_right_click_invsel;
+
+// Platform-specific GUI functions
+void gui_sdl_draghack(void);

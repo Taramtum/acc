@@ -2,7 +2,8 @@
  * Part of Astonia Client (c) Daniel Brockhaus. Please read license.txt.
  */
 
-#include "dll.h"
+#include "astonia.h"
+#include <stdio.h>
 
 // Sprite alignment constants
 #define RENDER_ALIGN_OFFSET 0 // Use sprite's built-in offset (must be zero for bzero default)
@@ -69,7 +70,7 @@
  * lighting, scaling, color manipulation, and alpha blending.
  */
 struct renderfx {
-	int sprite; // Primary sprite number (must be first for dl_qcmp sorting)
+	unsigned int sprite; // Primary sprite number (must be first for dl_qcmp sorting)
 
 	signed char sink; // Vertical sink amount for sprite positioning
 	unsigned char scale; // Scale percentage (100 = normal size)
@@ -78,7 +79,7 @@ struct renderfx {
 	unsigned short c1, c2, c3, shine; // Color replacement values
 
 	char light; // Lighting level: 0=bright (RENDERFX_BRIGHT), 15=normal (RENDERFX_NORMAL_LIGHT)
-	char freeze; // Animation freeze frame: 0 to RENDERFX_MAX_FREEZE-1
+	unsigned char freeze; // Animation freeze frame: 0 to RENDERFX_MAX_FREEZE-1
 
 	char ml, ll, rl, ul, dl; // Multi-directional lighting (main, left, right, up, down)
 
@@ -102,7 +103,7 @@ extern int x_offset, y_offset;
 DLL_EXPORT int render_text_length(int flags, const char *text);
 int render_text_len(int flags, const char *text, int n);
 DLL_EXPORT int render_text(int sx, int sy, unsigned short int color, int flags, const char *text);
-DLL_EXPORT int render_text_fmt(int sx, int sy, unsigned short int color, int flags, const char *format, ...)
+DLL_EXPORT int render_text_fmt(int64_t sx, int64_t sy, unsigned short int color, int flags, const char *format, ...)
     __attribute__((format(printf, 5, 6)));
 DLL_EXPORT int render_text_break_fmt(int sx, int sy, int breakx, unsigned short int color, int flags,
     const char *format, ...) __attribute__((format(printf, 6, 7)));
@@ -111,11 +112,15 @@ DLL_EXPORT int render_text_break(int x, int y, int breakx, unsigned short color,
 DLL_EXPORT int render_text_break_length(int x, int y, int breakx, unsigned short color, int flags, const char *ptr);
 int render_text_char(int sx, int sy, int c, unsigned short int color);
 int render_char_len(char c);
+void render_dump(FILE *fp);
+struct renderfont;
+typedef struct renderfont RenderFont;
+int render_create_font_png(RenderFont *dst, uint32_t *pixel, int dx, int dy, int yoff, int scale);
 
 // Sprite rendering functions
 DLL_EXPORT int render_sprite_fx(RenderFX *fx, int scrx, int scry);
-DLL_EXPORT void render_sprite(int sprite, int scrx, int scry, int light, int align);
-void render_sprite_callfx(int sprite, int scrx, int scry, int light, int mli, int align);
+DLL_EXPORT void render_sprite(unsigned int sprite, int scrx, int scry, char light, char align);
+void render_sprite_callfx(unsigned int sprite, int scrx, int scry, char light, char mli, char align);
 
 // Primitive drawing functions
 DLL_EXPORT void render_rect(int sx, int sy, int ex, int ey, unsigned short int color);
@@ -141,34 +146,34 @@ void render_list_text(void);
 // Offset functions
 int render_offset_x(void);
 int render_offset_y(void);
-extern int (*trans_asprite)(int mn, int sprite, int attick, unsigned char *pscale, unsigned char *pcr,
-    unsigned char *pcg, unsigned char *pcb, unsigned char *plight, unsigned char *psat, unsigned short *pc1,
-    unsigned short *pc2, unsigned short *pc3, unsigned short *pshine);
-DLL_EXPORT int _trans_asprite(int mn, int sprite, int attick, unsigned char *pscale, unsigned char *pcr,
-    unsigned char *pcg, unsigned char *pcb, unsigned char *plight, unsigned char *psat, unsigned short *pc1,
-    unsigned short *pc2, unsigned short *pc3, unsigned short *pshine);
+extern unsigned int (*trans_asprite)(map_index_t mn, unsigned int sprite, tick_t attick, unsigned char *pscale,
+    unsigned char *pcr, unsigned char *pcg, unsigned char *pcb, unsigned char *plight, unsigned char *psat,
+    unsigned short *pc1, unsigned short *pc2, unsigned short *pc3, unsigned short *pshine);
+DLL_EXPORT unsigned int _trans_asprite(map_index_t mn, unsigned int sprite, tick_t attick, unsigned char *pscale,
+    unsigned char *pcr, unsigned char *pcg, unsigned char *pcb, unsigned char *plight, unsigned char *psat,
+    unsigned short *pc1, unsigned short *pc2, unsigned short *pc3, unsigned short *pshine);
 extern int (*trans_charno)(int csprite, int *pscale, int *pcr, int *pcg, int *pcb, int *plight, int *psat, int *pc1,
     int *pc2, int *pc3, int *pshine, int attick);
 DLL_EXPORT int _trans_charno(int csprite, int *pscale, int *pcr, int *pcg, int *pcb, int *plight, int *psat, int *pc1,
     int *pc2, int *pc3, int *pshine, int attick);
-extern int (*additional_sprite)(int sprite, int attick);
-DLL_EXPORT int _additional_sprite(int sprite, int attick);
+extern int (*additional_sprite)(unsigned int sprite, int attick);
+DLL_EXPORT int _additional_sprite(unsigned int sprite, int attick);
 extern int (*get_player_sprite)(int nr, int zdir, int action, int step, int duration, int attick);
 DLL_EXPORT int _get_player_sprite(int nr, int zdir, int action, int step, int duration, int attick);
 void save_options(void);
-extern int (*opt_sprite)(int sprite);
-DLL_EXPORT int _opt_sprite(int sprite);
-extern int (*no_lighting_sprite)(int sprite);
-DLL_EXPORT int _no_lighting_sprite(int sprite);
+extern unsigned int (*opt_sprite)(unsigned int sprite);
+DLL_EXPORT unsigned int _opt_sprite(unsigned int sprite);
+extern int (*no_lighting_sprite)(unsigned int sprite);
+DLL_EXPORT int _no_lighting_sprite(unsigned int sprite);
 
 struct map;
-int get_sink(int mn, struct map *cmap);
+int get_sink(map_index_t mn, struct map *cmap);
 
 void list_mem(void);
 
 void display_game(void);
 
-void set_map_values(struct map *cmap, int attick);
+void set_map_values(struct map *cmap, tick_t attick);
 void quest_select(int nr);
 void init_game(int mcx, int mcy);
 void exit_game(void);

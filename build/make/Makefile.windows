@@ -1,3 +1,7 @@
+# Build type: release (default) or debug
+# Usage: make BUILD_TYPE=debug
+BUILD_TYPE ?= release
+
 all: bin/moac.exe
 
 # Ensure we use CLANG64 libraries on Windows
@@ -47,8 +51,17 @@ AR ?= llvm-ar
 RANLIB ?= llvm-ranlib
 
 # Build type configuration
-OPT ?= -O3
-DEBUG ?= -gdwarf-4
+ifeq ($(BUILD_TYPE),debug)
+    OPT ?= -O0
+    DEBUG ?= -gdwarf-4 -g3
+    DEVELOPER_FLAGS = -DDEVELOPER
+    $(info Building DEBUG configuration)
+else
+    OPT ?= -O3
+    DEBUG ?= -gdwarf-4
+    DEVELOPER_FLAGS =
+    $(info Building RELEASE configuration)
+endif
 
 # Cross-compilation configuration (from Docker ENV or defaults)
 TARGET ?= x86_64-w64-mingw32
@@ -70,16 +83,25 @@ CROSS_FLAGS = --target=$(TARGET) --sysroot=$(SYSROOT)
 PLATFORM_FLAGS = -fms-extensions -D_WIN32 -D_WIN32_WINNT=$(WIN32_WINNT)
 
 # Runtime library configuration
-# Note: Resource dir needed for cross-compilation to find Windows compiler-rt
-RTLIB_FLAGS = --rtlib=compiler-rt -resource-dir=$(SYSROOT)/lib/clang/21
+# Note: Resource dir needed for cross-compilation to find headers/builtins during compilation
+RTLIB_FLAGS = -resource-dir=$(SYSROOT)/lib/clang/21
 
-# Warning flags - comprehensive but with necessary suppressions
-WARNING_FLAGS = -Wall -Wextra \
-    -Wno-pointer-sign \
-    -Wno-char-subscripts \
-    -Wformat-security \
-    -Wformat-nonliteral \
-    -Winit-self
+STRICT_WARNING_FLAGS = \
+    -Wall -Wextra -Wpedantic \
+    -Wformat=2 \
+    -Wnull-dereference \
+    -Wdouble-promotion \
+    -Wcast-align \
+    -Wcast-qual \
+    -Wconversion -Wsign-conversion \
+    -Wmissing-prototypes -Wstrict-prototypes \
+    -Wvla \
+    -Wfloat-equal \
+    -Wnewline-eof
+
+# All warnings are errors
+WARNING_FLAGS ?= $(STRICT_WARNING_FLAGS) -Werror
+
 
 # Security/hardening flags
 SECURITY_FLAGS = -fstack-protector-strong \
@@ -94,11 +116,16 @@ VISIBILITY_FLAGS = -fvisibility=hidden
 # Link-Time Optimization (ThinLTO for faster builds)
 LTO_FLAGS = -flto=thin
 
+# Default to using mimalloc unless USE_MIMALLOC=0 is set
+USE_MIMALLOC ?= 1
+
 # Project feature flags
 FEATURE_FLAGS = -DSTORE_UNIQUE \
     -DENABLE_CRASH_HANDLER \
     -DENABLE_SHAREDMEM \
-    -DENABLE_DRAGHACK
+    -DENABLE_DRAGHACK \
+    -DUSE_MIMALLOC=$(USE_MIMALLOC) \
+    $(DEVELOPER_FLAGS)
 
 # ============================================================================
 # CFLAGS Assembly
@@ -174,6 +201,9 @@ LDFLAGS_CONSOLE ?= $(LINKER_FLAGS) \
 
 SDL_LIBS=$(shell $(SDL_CONFIG) --libs)
 LIBS = -lwsock32 -lws2_32 -lpsapi -lz -lpng -lzip -ldwarfstack $(SDL_LIBS) -lSDL2_mixer
+ifeq ($(USE_MIMALLOC),1)
+LIBS += -lmimalloc
+endif
 
 # Release build ?
 ifneq (,$(findstring release,$(MAKECMDGOALS)))
@@ -190,6 +220,7 @@ OBJS	=		src/gui/gui_core.o src/gui/gui_input.o src/gui/gui_display.o src/gui/gui
 			src/client/client.o src/client/protocol.o src/client/skill.o\
 			src/game/game_core.o src/game/game_effects.o src/game/game_lighting.o src/game/game_display.o\
 			src/game/render.o src/game/font.o src/game/main.o src/game/sprite.o\
+			src/game/memory.o\
 			src/modder/modder.o\
 			src/sdl/sdl_core.o src/sdl/sdl_texture.o src/sdl/sdl_image.o src/sdl/sdl_effects.o src/sdl/sdl_draw.o src/sdl/sound.o\
 			src/game/resource.o src/helper/helper.o\
@@ -225,7 +256,7 @@ bin/anicopy.exe:	src/helper/anicopy.c
 			$(CC) $(OPT) $(DEBUG) -Wall -o bin/anicopy.exe src/helper/anicopy.c
 
 bin/convert.exe:	src/helper/convert.c
-			$(CC) $(OPT) $(DEBUG) -Wall -DSTANDALONE -o bin/convert.exe src/helper/convert.c -lpng -lzip
+			$(CC) $(OPT) $(DEBUG) -Wall -DSTANDALONE -DUSE_MIMALLOC=$(USE_MIMALLOC) -o bin/convert.exe src/helper/convert.c -lpng -lzip $(if $(filter 1,$(USE_MIMALLOC)),-lmimalloc,)
 
 
 src/client/client.o:	src/client/client.c src/astonia.h src/client/client.h src/client/client_private.h src/sdl/sdl.h
@@ -281,6 +312,8 @@ src/sdl/sound.o:      	src/sdl/sound.c src/astonia.h src/sdl/sdl.h src/sdl/sdl_p
 
 src/client/unique_windows.o: src/client/unique_windows.c
 src/game/crash_handler_windows.o: src/game/crash_handler_windows.c
+src/game/memory.o: src/game/memory.c src/game/memory.h src/astonia.h src/sdl/sdl.h
+
 src/game/memory_windows.o: src/game/memory_windows.c
 src/game/version.o: src/game/version.c
 src/gui/draghack_windows.o: src/gui/draghack_windows.c
@@ -318,45 +351,15 @@ clean:
 # Prepare distribution staging directory
 distrib-stage:
 	@echo "Preparing Windows distribution staging..."
-	@mkdir -p distrib/windows_client/bin
-	@rm -f /tmp/dll_processed.txt
-	@touch /tmp/dll_processed.txt
-	@echo "Copying binaries and resources..."
-	@cp -r bin/* distrib/windows_client/bin/
-	@cp -r res distrib/windows_client/
-	@cp create_shortcut.bat distrib/windows_client/
-	@cp eula.txt distrib/windows_client/
-	@echo "Collecting DLL dependencies..."
-	@bash -c ' \
-		process_dll() { \
-			local dll_path="$$1"; \
-			local dll_name=$$(basename "$$dll_path"); \
-			if grep -Fxq "$$dll_name" /tmp/dll_processed.txt 2>/dev/null; then \
-				return; \
-			fi; \
-			echo "$$dll_name" >> /tmp/dll_processed.txt; \
-			if [ -f "$$dll_path" ]; then \
-				echo "  Copying $$dll_name..."; \
-				cp "$$dll_path" distrib/windows_client/bin/ 2>/dev/null || true; \
-				x86_64-w64-mingw32-objdump -p "$$dll_path" 2>/dev/null | grep "DLL Name:" | awk "{print \$$3}" | while read dep_dll; do \
-					dep_path=$$(find $(SYSROOT) -name "$$dep_dll" 2>/dev/null | head -n1); \
-					if [ -n "$$dep_path" ]; then \
-						process_dll "$$dep_path"; \
-					fi; \
-				done; \
-			fi; \
-		}; \
-		export -f process_dll; \
-		x86_64-w64-mingw32-objdump -p distrib/windows_client/bin/moac.exe 2>/dev/null | grep "DLL Name:" | awk "{print \$$3}" | while read dll; do \
-			dll_path=$$(find $(SYSROOT) -name "$$dll" 2>/dev/null | head -n1); \
-			if [ -n "$$dll_path" ]; then \
-				process_dll "$$dll_path"; \
-			fi; \
-		done; \
-		process_dll "$(ASTONIA_NET_DIR)/target/$(ASTONIA_NET_TGT)/release/astonia_net.dll"; \
-	'
-	@rm -f /tmp/dll_processed.txt
-	@echo "Windows distribution staging complete: distrib/windows_client/"
+	@if [ -n "$$MSYSTEM_PREFIX" ] && [ -x "$$MSYSTEM_PREFIX/usr/bin/bash" ]; then \
+		$$MSYSTEM_PREFIX/usr/bin/bash build/tools/package_windows.sh; \
+	elif [ -n "$$MSYSTEM_PREFIX" ] && [ -x "/usr/bin/bash" ]; then \
+		/usr/bin/bash build/tools/package_windows.sh; \
+	elif [ -x "C:/msys64/usr/bin/bash.exe" ]; then \
+		C:/msys64/usr/bin/bash.exe build/tools/package_windows.sh; \
+	else \
+		bash build/tools/package_windows.sh; \
+	fi
 
 # Legacy target for local development (creates archive)
 distrib: distrib-stage
@@ -368,5 +371,14 @@ distrib: distrib-stage
 amod:		bin/amod.dll bin/moac.exe
 convert:	bin/convert.exe
 anicopy:	bin/anicopy.exe
-debug:		bin/moac_dbg.exe
+console:	bin/moac_dbg.exe
+
+# Convenience targets for build types
+debug:
+	$(MAKE) -f build/make/Makefile.windows BUILD_TYPE=debug
+
+release:
+	$(MAKE) -f build/make/Makefile.windows BUILD_TYPE=release
+
+.PHONY: debug release console
 

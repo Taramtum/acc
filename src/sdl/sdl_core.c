@@ -7,6 +7,7 @@
  * event loop, and background prefetching system.
  */
 
+#include <SDL2/SDL_timer.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -18,6 +19,7 @@
 #include "astonia.h"
 #include "sdl/sdl.h"
 #include "sdl/sdl_private.h"
+#include "gui/gui.h"
 
 // SDL window and renderer
 SDL_Window *sdlwnd = NULL;
@@ -35,6 +37,7 @@ zip_t *sdl_zip1m = NULL;
 zip_t *sdl_zip2m = NULL;
 
 // Prefetch threading (shared with sdl_texture.c)
+SDL_sem *prework = NULL;
 SDL_mutex *premutex = NULL;
 
 // Scale and resolution settings
@@ -48,7 +51,7 @@ DLL_EXPORT int __yres = YRES0;
 #define MAXPRE (16384)
 
 struct prefetch {
-	int attick;
+	tick_t attick;
 	int stx;
 };
 static struct prefetch pre[MAXPRE];
@@ -65,7 +68,8 @@ static SDL_atomic_t pre_quit;
 static SDL_Thread **prethreads = NULL;
 
 // Image loading state machine (shared with sdl_image.c)
-int *sdli_state = NULL;
+static int sdli_state_storage[MAXSPRITE];
+int *sdli_state = sdli_state_storage;
 
 void sdl_dump(FILE *fp)
 {
@@ -85,11 +89,6 @@ void sdl_dump(FILE *fp)
 	fprintf(fp, "texc_miss: %lld\n", texc_miss);
 	fprintf(fp, "texc_pre: %lld\n", texc_pre);
 
-	// sdlm_sprite, sdlm_scale, sdlm_pixel are static in sdl_image.c
-	// fprintf(fp, "sdlm_sprite: %d\n", sdlm_sprite);
-	// fprintf(fp, "sdlm_scale: %d\n", sdlm_scale);
-	// fprintf(fp, "sdlm_pixel: %p\n", sdlm_pixel);
-
 	fprintf(fp, "\n");
 }
 
@@ -99,7 +98,7 @@ void sdl_dump(FILE *fp)
 
 int sdl_init(int width, int height, char *title)
 {
-	int len, i;
+	int i;
 	SDL_DisplayMode DM;
 
 	if (SDL_Init(SDL_INIT_VIDEO | ((game_options & GO_SOUND) ? SDL_INIT_AUDIO : 0)) != 0) {
@@ -138,13 +137,7 @@ int sdl_init(int width, int height, char *title)
 		return 0;
 	}
 
-	len = sizeof(struct sdl_image) * MAXSPRITE;
-	sdli = xmalloc(len * 1, MEM_SDL_BASE);
-	if (!sdli) {
-		return fail("Out of memory in sdl_init");
-	}
-
-	sdlt_cache = xmalloc(MAX_TEXHASH * sizeof(int), MEM_SDL_BASE);
+	sdlt_cache = xmalloc((size_t)MAX_TEXHASH * sizeof(int), MEM_SDL_BASE);
 	if (!sdlt_cache) {
 		return fail("Out of memory in sdl_init");
 	}
@@ -153,18 +146,9 @@ int sdl_init(int width, int height, char *title)
 		sdlt_cache[i] = STX_NONE;
 	}
 
-	sdlt = xmalloc(MAX_TEXCACHE * sizeof(struct sdl_texture), MEM_SDL_BASE);
+	sdlt = xmalloc((size_t)MAX_TEXCACHE * sizeof(struct sdl_texture), MEM_SDL_BASE);
 	if (!sdlt) {
 		return fail("Out of memory in sdl_init");
-	}
-
-	// Initialize sdli_state array for image loading state machine
-	sdli_state = xmalloc(MAXSPRITE * sizeof(int), MEM_SDL_BASE);
-	if (!sdli_state) {
-		return fail("Out of memory in sdl_init");
-	}
-	for (i = 0; i < MAXSPRITE; i++) {
-		sdli_state[i] = 0; // IMG_UNLOADED
 	}
 
 	for (i = 0; i < MAX_TEXCACHE; i++) {
@@ -283,6 +267,13 @@ int sdl_init(int width, int height, char *title)
 		return 0;
 	}
 
+	// Initialize semaphore for waking background workers (starts at 0)
+	prework = SDL_CreateSemaphore(0);
+	if (!prework) {
+		fail("Failed to create prework semaphore");
+		return 0;
+	}
+
 	SDL_AtomicSet(&pre_quit, 0);
 
 	if (sdl_multi) {
@@ -290,7 +281,7 @@ int sdl_init(int width, int height, char *title)
 		int n;
 
 		// Allocate worker zip handles
-		worker_zips = xmalloc(sdl_multi * sizeof(struct zip_handles), MEM_SDL_BASE);
+		worker_zips = xmalloc((size_t)sdl_multi * sizeof(struct zip_handles), MEM_SDL_BASE);
 		if (!worker_zips) {
 			fail("Out of memory for worker zip handles");
 			sdl_multi = 0;
@@ -353,7 +344,7 @@ int sdl_init(int width, int height, char *title)
 
 			// Only create threads if all zip handles succeeded
 			if (sdl_multi > 0) {
-				prethreads = xmalloc(sdl_multi * sizeof(SDL_Thread *), MEM_SDL_BASE);
+				prethreads = xmalloc((size_t)sdl_multi * sizeof(SDL_Thread *), MEM_SDL_BASE);
 				if (!prethreads) {
 					fail("Out of memory for thread handles");
 					// Clean up zip handles
@@ -454,6 +445,15 @@ void sdl_exit(void)
 	// Signal workers to quit and join them
 	if (sdl_multi && prethreads) {
 		SDL_AtomicSet(&pre_quit, 1);
+
+		// Wake all workers so they can see the quit signal
+		// (they're blocked on SDL_SemWait)
+		if (prework) {
+			for (int n = 0; n < sdl_multi; n++) {
+				SDL_SemPost(prework);
+			}
+		}
+
 		for (int n = 0; n < sdl_multi; n++) {
 			if (prethreads[n]) {
 				SDL_WaitThread(prethreads[n], NULL);
@@ -508,14 +508,14 @@ void sdl_exit(void)
 		zip_close(sdl_zip2p);
 	}
 
+	if (prework) {
+		SDL_DestroySemaphore(prework);
+		prework = NULL;
+	}
+
 	if (premutex) {
 		SDL_DestroyMutex(premutex);
 		premutex = NULL;
-	}
-
-	if (sdli_state) {
-		xfree(sdli_state);
-		sdli_state = NULL;
 	}
 
 	if (game_options & GO_SOUND) {
@@ -526,9 +526,6 @@ void sdl_exit(void)
 #endif
 }
 
-void gui_sdl_keyproc(int wparam);
-void gui_sdl_mouseproc(int x, int y, int but, int clicks);
-void gui_sdl_draghack(void);
 void cmd_proc(int key);
 void context_keyup(int key);
 
@@ -551,32 +548,32 @@ void sdl_loop(void)
 			cmd_proc(event.text.text[0]);
 			break;
 		case SDL_MOUSEMOTION:
-			gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_NONE, 0);
+			gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_NONE);
 			break;
 		case SDL_MOUSEBUTTONDOWN:
 			if (event.button.button == SDL_BUTTON_LEFT) {
-				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_LDOWN, event.button.clicks);
+				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_LDOWN);
 			}
 			if (event.button.button == SDL_BUTTON_MIDDLE) {
-				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_MDOWN, event.button.clicks);
+				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_MDOWN);
 			}
 			if (event.button.button == SDL_BUTTON_RIGHT) {
-				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_RDOWN, event.button.clicks);
+				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_RDOWN);
 			}
 			break;
 		case SDL_MOUSEBUTTONUP:
 			if (event.button.button == SDL_BUTTON_LEFT) {
-				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_LUP, event.button.clicks);
+				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_LUP);
 			}
 			if (event.button.button == SDL_BUTTON_MIDDLE) {
-				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_MUP, event.button.clicks);
+				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_MUP);
 			}
 			if (event.button.button == SDL_BUTTON_RIGHT) {
-				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_RUP, event.button.clicks);
+				gui_sdl_mouseproc(event.motion.x, event.motion.y, SDL_MOUM_RUP);
 			}
 			break;
 		case SDL_MOUSEWHEEL:
-			gui_sdl_mouseproc(event.wheel.x, event.wheel.y, SDL_MOUM_WHEEL, 0);
+			gui_sdl_mouseproc(event.wheel.x, event.wheel.y, SDL_MOUM_WHEEL);
 			break;
 		case SDL_WINDOWEVENT:
 #ifdef ENABLE_DRAGHACK
@@ -607,7 +604,7 @@ void sdl_show_cursor(int flag)
 
 void sdl_capture_mouse(int flag)
 {
-	SDL_CaptureMouse(flag);
+	SDL_CaptureMouse(flag ? SDL_TRUE : SDL_FALSE);
 }
 
 /* This function is a hack. It can only load one specific type of
@@ -635,7 +632,7 @@ SDL_Cursor *sdl_create_cursor(char *filename)
 	// translate .cur
 	for (int i = 0; i < 32; i++) {
 		for (int j = 0; j < 4; j++) {
-			data[i * 4 + j] = (~buf[322 - i * 4 + j]) & (~buf[194 - i * 4 + j]);
+			data[i * 4 + j] = (unsigned char)((~buf[322 - i * 4 + j]) & (~buf[194 - i * 4 + j]));
 			mask[i * 4 + j] = buf[194 - i * 4 + j];
 		}
 	}
@@ -834,7 +831,7 @@ int sdl_pre_worker(struct zip_handles *zips)
 {
 	extern struct sdl_texture *sdlt;
 	extern struct sdl_image *sdli;
-	extern int sdl_ic_load(int sprite, struct zip_handles *zips);
+	extern int sdl_ic_load(unsigned int sprite, struct zip_handles *zips);
 	extern void sdl_make(struct sdl_texture * st, struct sdl_image * si, int preload);
 
 	int idx = next_job_id();
@@ -870,7 +867,7 @@ int sdl_pre_worker(struct zip_handles *zips)
 	uint16_t *flags_ptr = (uint16_t *)&sdlt[stx].flags;
 	__atomic_fetch_and(flags_ptr, (uint16_t)~SF_INQUEUE, __ATOMIC_RELEASE);
 
-	int sprite = sdlt[stx].sprite;
+	unsigned int sprite = sdlt[stx].sprite;
 
 	// Load image using worker's zip handles
 	if (sdl_ic_load(sprite, zips) < 0) {
@@ -894,14 +891,15 @@ int sdl_pre_worker(struct zip_handles *zips)
 	return 1;
 }
 
-void sdl_pre_add(int attick, int sprite, signed char sink, unsigned char freeze, unsigned char scale, char cr, char cg,
-    char cb, char light, char sat, int c1, int c2, int c3, int shine, char ml, char ll, char rl, char ul, char dl)
+void sdl_pre_add(tick_t attick, unsigned int sprite, signed char sink, unsigned char freeze, unsigned char scale,
+    char cr, char cg, char cb, char light, char sat, int c1, int c2, int c3, int shine, char ml, char ll, char rl,
+    char ul, char dl)
 {
 	int n;
-	long long start;
+	Uint64 start;
 
-	if (sprite >= MAXSPRITE || sprite < 0) {
-		note("illegal sprite %d wanted in pre_add", sprite);
+	if (sprite >= MAXSPRITE) {
+		note("illegal sprite %u wanted in pre_add", sprite);
 		return;
 	}
 
@@ -909,9 +907,9 @@ void sdl_pre_add(int attick, int sprite, signed char sink, unsigned char freeze,
 	// Will allocate a new entry if not found, or return -1 if already in cache
 	start = SDL_GetTicks64();
 	n = sdl_tx_load(sprite, sink, freeze, scale, cr, cg, cb, light, sat, c1, c2, c3, shine, ml, ll, rl, ul, dl, NULL, 0,
-	    0, NULL, 0, 1, attick);
+	    0, NULL, 0, 1, (int)attick);
 	extern long long sdl_time_alloc;
-	sdl_time_alloc += SDL_GetTicks64() - start;
+	sdl_time_alloc += (long long)(SDL_GetTicks64() - start);
 
 	if (n == -1) {
 		// Already in cache or failed
@@ -957,15 +955,17 @@ void sdl_pre_add(int attick, int sprite, signed char sink, unsigned char freeze,
 	jq_tail = (jq_tail + 1) % MAXPRE;
 
 	SDL_UnlockMutex(premutex);
+
+	SDL_SemPost(prework);
 }
 
 long long sdl_time_mutex = 0;
 
 void sdl_lock(void *a)
 {
-	long long start = SDL_GetTicks64();
+	Uint64 start = SDL_GetTicks64();
 	SDL_LockMutex(a);
-	sdl_time_mutex += SDL_GetTicks64() - start;
+	sdl_time_mutex += (long long)(SDL_GetTicks64() - start);
 }
 
 #define SDL_LockMutex(a) sdl_lock(a)
@@ -1022,15 +1022,15 @@ int sdl_pre_done(void)
 	return 1;
 }
 
-int sdl_pre_do(int curtick)
+int sdl_pre_do(tick_t curtick __attribute__((unused)))
 {
-	long long start;
+	Uint64 start;
 	int size;
 
 	start = SDL_GetTicks64();
 	sdl_pre_ready();
 	extern long long sdl_time_pre1;
-	sdl_time_pre1 += SDL_GetTicks64() - start;
+	sdl_time_pre1 += (long long)(SDL_GetTicks64() - start);
 
 	start = SDL_GetTicks64();
 	if (!sdl_multi) {
@@ -1038,12 +1038,12 @@ int sdl_pre_do(int curtick)
 		sdl_pre_worker(NULL);
 	}
 	extern long long sdl_time_pre2;
-	sdl_time_pre2 += SDL_GetTicks64() - start;
+	sdl_time_pre2 += (long long)(SDL_GetTicks64() - start);
 
 	start = SDL_GetTicks64();
 	sdl_pre_done();
 	extern long long sdl_time_pre3;
-	sdl_time_pre3 += SDL_GetTicks64() - start;
+	sdl_time_pre3 += (long long)(SDL_GetTicks64() - start);
 
 	// Calculate queue size
 	if (pre_in >= pre_ready) {
@@ -1067,32 +1067,51 @@ int sdl_pre_backgnd(void *ptr)
 {
 	int worker_id = (int)(long long)ptr;
 	struct zip_handles *zips = worker_zips ? &worker_zips[worker_id] : NULL;
-	uint64_t start, t1, t2;
-	int found_work;
+	uint64_t wait_start, work_start;
+	int sem_result;
 
-	// Validate mutex
+	// Validate semaphore and mutex
+	if (!prework) {
+		SDL_Log("sdl_pre_backgnd: prework semaphore is NULL, exiting thread");
+		return -1;
+	}
 	if (!premutex) {
 		SDL_Log("sdl_pre_backgnd: premutex is NULL, exiting thread");
 		return -1;
 	}
 
-	while (!quit && !SDL_AtomicGet(&pre_quit)) {
-		start = SDL_GetTicks64();
-		t1 = start;
+	for (;;) {
+		// Wait for work to be available (blocks until signaled)
+		wait_start = SDL_GetTicks64();
+		sem_result = SDL_SemWait(prework);
+		sdl_backgnd_wait += SDL_GetTicks64() - wait_start;
 
-		// Poll job queue with 1ms delay when idle
-		found_work = sdl_pre_worker(zips);
-
-		t2 = SDL_GetTicks64();
-
-		if (!found_work) {
-			SDL_Delay(1);
-			sdl_backgnd_wait += t2 - t1;
-		} else {
-			uint64_t work_time = t2 - t1;
-			sdl_backgnd_work += work_time;
-			sdl_backgnd_jobs++;
+		// Check for semaphore wait errors
+		// SDL_SemWait returns -1 only on fatal errors:
+		// 1. Invalid semaphore (already validated above) - persistent error
+		// 2. Semaphore destroyed during wait (shutdown race) - unrecoverable
+		// 3. System-level failure (extremely rare) - persistent error
+		// In all cases, continuing would fail immediately again, so exit thread
+		// cleanly.
+		if (sem_result != 0) {
+			SDL_Log("sdl_pre_backgnd: SDL_SemWait failed: %s - exiting worker thread", SDL_GetError());
+			return -1; // Semaphore failure is fatal for this worker
 		}
+
+		// Check for shutdown before each job attempt.
+		if (quit || SDL_AtomicGet(&pre_quit)) {
+			return 0;
+		}
+
+		// Process one job from the queue
+		work_start = SDL_GetTicks64();
+		if (sdl_pre_worker(zips) == 0) {
+			// No work found, wait on semaphore.
+			continue;
+		}
+
+		sdl_backgnd_work += SDL_GetTicks64() - work_start;
+		sdl_backgnd_jobs++;
 	}
 
 	return 0;

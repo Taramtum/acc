@@ -2,7 +2,7 @@
  * Part of Astonia Client (c) Daniel Brockhaus. Please read license.txt.
  */
 
-#include "../dll.h"
+#include "../astonia.h"
 
 // Forward declarations
 struct quicks; // QUICK is defined in gui/gui.h as typedef of struct quicks
@@ -105,18 +105,18 @@ extern RenderFont *fontc_shaded; // Big font with shadow
 extern RenderFont *fontc_framed; // Big font with outline
 
 int is_top_sprite(int sprite, int itemhint);
-extern int (*is_cut_sprite)(int sprite);
-DLL_EXPORT int _is_cut_sprite(int sprite);
-extern int (*is_mov_sprite)(int sprite, int itemhint);
-DLL_EXPORT int _is_mov_sprite(int sprite, int itemhint);
-extern int (*is_door_sprite)(int sprite);
-DLL_EXPORT int _is_door_sprite(int sprite);
-extern int (*is_yadd_sprite)(int sprite);
-DLL_EXPORT int _is_yadd_sprite(int sprite);
-extern int (*get_chr_height)(int csprite);
-DLL_EXPORT int _get_chr_height(int csprite);
-extern void (*trans_csprite)(int mn, struct map *cmap, int attick);
-DLL_EXPORT void _trans_csprite(int mn, struct map *cmap, int attick);
+extern int (*is_cut_sprite)(unsigned int sprite);
+DLL_EXPORT int _is_cut_sprite(unsigned int sprite);
+extern int (*is_mov_sprite)(unsigned int sprite, int itemhint);
+DLL_EXPORT int _is_mov_sprite(unsigned int sprite, int itemhint);
+extern int (*is_door_sprite)(unsigned int sprite);
+DLL_EXPORT int _is_door_sprite(unsigned int sprite);
+extern int (*is_yadd_sprite)(unsigned int sprite);
+DLL_EXPORT int _is_yadd_sprite(unsigned int sprite);
+extern int (*get_chr_height)(unsigned int csprite);
+DLL_EXPORT int _get_chr_height(unsigned int csprite);
+extern void (*trans_csprite)(map_index_t mn, struct map *cmap, tick_t attick);
+DLL_EXPORT void _trans_csprite(map_index_t mn, struct map *cmap, tick_t attick);
 extern int (*get_lay_sprite)(int sprite, int lay);
 DLL_EXPORT int _get_lay_sprite(int sprite, int lay);
 extern int (*get_offset_sprite)(int sprite, int *px, int *py);
@@ -139,7 +139,7 @@ void render_add_text(char *ptr);
 void render_draw_bless(int x, int y, int ticker, int strength, int front);
 void render_draw_potion(int x, int y, int ticker, int strength, int front);
 void render_draw_rain(int x, int y, int ticker, int strength, int front);
-void render_draw_curve(int cx, int cy, int nr, int size, unsigned short col);
+void render_draw_curve(int cx, int cy, int nr, int size, int col);
 void render_display_strike(int fx, int fy, int tx, int ty);
 void render_display_pulseback(int fx, int fy, int tx, int ty);
 
@@ -153,10 +153,10 @@ extern int fsprite_cnt, f2sprite_cnt, gsprite_cnt, g2sprite_cnt, isprite_cnt, cs
 extern QUICK *quick;
 extern int maxquick;
 DL *dl_next(void);
-DL *dl_next_set(int layer, int sprite, int scrx, int scry, int light);
+DL *dl_next_set(int layer, unsigned int sprite, int scrx, int scry, unsigned char light);
 int dl_qcmp(const void *ca, const void *cb);
 void dl_play(void);
-void dl_prefetch(int attick);
+void dl_prefetch(tick_t attick);
 void add_bubble(int x, int y, int h);
 void show_bubbles(void);
 void make_quick(int game, int mcx, int mcy);
@@ -177,7 +177,8 @@ void sprites_colorbalance(struct map *cmap, int mn, int r, int g, int b);
 void set_map_straight(struct map *cmap);
 
 // From game_display.c
-int get_sink(int mn, struct map *cmap);
+int get_sink(map_index_t mn, struct map *cmap);
+void draw_pixel(int64_t x, int64_t y, int64_t color);
 void display_game_map(struct map *cmap);
 void display_pents(void);
-void prefetch_game(int attick);
+void prefetch_game(tick_t attick);

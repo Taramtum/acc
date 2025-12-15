@@ -46,8 +46,8 @@ extern int sound_volume;
 
 void sdl_set_cursor(int cursor);
 int init_sound(void);
-void sound_exit();
-void play_sound(int nr, int vol, int p);
+void sound_exit(void);
+void play_sound(unsigned int nr, int vol, int p);
 
 void sdl_bargraph_add(int dx, unsigned char *data, int val);
 void sdl_bargraph(int sx, int sy, int dx, unsigned char *data, int x_offset, int y_offset);
@@ -56,9 +56,9 @@ int sdl_is_shown(void);
 void sdl_set_cursor_pos(int x, int y);
 void sdl_show_cursor(int flag);
 void sdl_capture_mouse(int flag);
-int sdl_tx_load(int sprite, int sink, int freeze, int scale, int cr, int cg, int cb, int light, int sat, int c1, int c2,
-    int c3, int shine, int ml, int ll, int rl, int ul, int dl, const char *text, int text_color, int text_flags,
-    void *text_font, int checkonly, int preload, int fortick);
+int sdl_tx_load(unsigned int sprite, signed char sink, unsigned char freeze, unsigned char scale, char cr, char cg,
+    char cb, char light, char sat, int c1, int c2, int c3, int shine, char ml, char ll, char rl, char ul, char dl,
+    const char *text, int text_color, int text_flags, void *text_font, int checkonly, int preload, int fortick);
 int sdl_init(int width, int height, char *title);
 void sdl_exit(void);
 void sdl_loop(void);
@@ -87,6 +87,7 @@ int sdl_tex_xres(int stx);
 int sdl_tex_yres(int stx);
 void sdl_render_circle(int32_t centreX, int32_t centreY, int32_t radius, uint32_t color);
 void sdl_flush_textinput(void);
+void sdl_dump(FILE *fp);
 #ifdef DEVELOPER
 void sdl_dump_spritecache(void);
 #endif

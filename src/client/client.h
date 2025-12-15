@@ -2,6 +2,7 @@
  * Part of Astonia Client (c) Daniel Brockhaus. Please read license.txt.
  */
 #include "./dll.h"
+#include <time.h>
 
 #define MAXCHARS 2048
 
@@ -177,36 +178,36 @@ struct shrine_ppd {
 
 struct player {
 	char name[80];
-	int csprite;
-	short level;
+	sprite_id_t csprite;
+	stat_t level;
 	unsigned short c1, c2, c3;
 	unsigned char clan;
 	unsigned char pk_status;
 };
 
 struct cef_generic {
-	int nr;
+	unsigned int nr;
 	int type;
 };
 
 struct cef_shield {
 	int nr;
 	int type;
-	int cn;
-	int start;
+	char_id_t cn;
+	uint32_t start;
 };
 
 struct cef_strike {
 	int nr;
 	int type;
-	int cn;
+	char_id_t cn;
 	int x, y; // target
 };
 
 struct cef_ball {
 	int nr;
 	int type;
-	int start;
+	uint32_t start;
 	int frx, fry; // high precision coords
 	int tox, toy; // high precision coords
 };
@@ -214,7 +215,7 @@ struct cef_ball {
 struct cef_fireball {
 	int nr;
 	int type;
-	int start;
+	uint32_t start;
 	int frx, fry; // high precision coords
 	int tox, toy; // high precision coords
 };
@@ -222,7 +223,7 @@ struct cef_fireball {
 struct cef_edemonball {
 	int nr;
 	int type;
-	int start;
+	uint32_t start;
 	int base;
 	int frx, fry; // high precision coords
 	int tox, toy; // high precision coords
@@ -231,79 +232,79 @@ struct cef_edemonball {
 struct cef_flash {
 	int nr;
 	int type;
-	int cn;
+	char_id_t cn;
 };
 
 struct cef_explode {
 	int nr;
 	int type;
-	int start;
-	int base;
+	uint32_t start;
+	unsigned int base;
 };
 
 struct cef_warcry {
 	int nr;
 	int type;
-	int cn;
+	char_id_t cn;
 	int stop;
 };
 
 struct cef_bless {
 	int nr;
 	int type;
-	int cn;
-	int start;
-	int stop;
+	char_id_t cn;
+	uint32_t start;
+	uint32_t stop;
 	int strength;
 };
 
 struct cef_heal {
 	int nr;
 	int type;
-	int cn;
-	int start;
+	char_id_t cn;
+	uint32_t start;
 };
 
 struct cef_freeze {
 	int nr;
 	int type;
-	int cn;
-	int start;
-	int stop;
+	char_id_t cn;
+	uint32_t start;
+	uint32_t stop;
 };
 
 struct cef_burn {
 	int nr;
 	int type;
-	int cn;
+	char_id_t cn;
 	int stop;
 };
 
 struct cef_mist {
 	int nr;
 	int type;
-	int start;
+	uint32_t start;
 };
 
 struct cef_pulse {
 	int nr;
 	int type;
-	int start;
+	uint32_t start;
 };
 
 struct cef_pulseback {
 	int nr;
 	int type;
-	int cn;
+	char_id_t cn;
 	int x, y;
 };
 
 struct cef_potion {
 	int nr;
 	int type;
-	int cn;
-	int start;
-	int stop;
+	char_id_t cn;
+	uint32_t start;
+	uint32_t stop;
 	int strength;
 };
 
@@ -321,29 +322,29 @@ struct cef_earthmud {
 struct cef_curse {
 	int nr;
 	int type;
-	int cn;
-	int start;
-	int stop;
+	char_id_t cn;
+	uint32_t start;
+	uint32_t stop;
 	int strength;
 };
 
 struct cef_cap {
 	int nr;
 	int type;
-	int cn;
+	char_id_t cn;
 };
 
 struct cef_lag {
 	int nr;
 	int type;
-	int cn;
+	char_id_t cn;
 };
 
 struct cef_firering {
 	int nr;
 	int type;
-	int cn;
-	int start;
+	char_id_t cn;
+	uint32_t start;
 };
 
 struct cef_bubble {
@@ -460,20 +461,20 @@ struct client_info {
 DLL_EXPORT extern struct map map[MAPDX * MAPDY];
 DLL_EXPORT extern struct map map2[MAPDX * MAPDY];
 
-DLL_EXPORT extern int value[2][V_MAX];
-extern int *game_v_max;
-extern int *game_v_profbase;
-DLL_EXPORT extern int item[INVENTORYSIZE];
-DLL_EXPORT extern int item_flags[INVENTORYSIZE];
-DLL_EXPORT extern int hp;
-DLL_EXPORT extern int mana;
-DLL_EXPORT extern int rage;
-DLL_EXPORT extern int endurance;
-DLL_EXPORT extern int lifeshield;
-DLL_EXPORT extern int experience;
-DLL_EXPORT extern int experience_used;
-DLL_EXPORT extern int gold;
-DLL_EXPORT extern int tick;
+DLL_EXPORT extern uint16_t value[2][V_MAX];
+DLL_EXPORT extern int *game_v_max;
+DLL_EXPORT extern int *game_v_profbase;
+DLL_EXPORT extern uint32_t item[INVENTORYSIZE];
+DLL_EXPORT extern uint32_t item_flags[INVENTORYSIZE];
+DLL_EXPORT extern stat_t hp;
+DLL_EXPORT extern stat_t mana;
+DLL_EXPORT extern stat_t rage;
+DLL_EXPORT extern stat_t endurance;
+DLL_EXPORT extern stat_t lifeshield;
+DLL_EXPORT extern uint32_t experience;
+DLL_EXPORT extern uint32_t experience_used;
+DLL_EXPORT extern uint32_t gold;
+DLL_EXPORT extern tick_t tick;
 extern int lasttick; // ticks in inbuf
 extern int q_size;
 
@@ -483,14 +484,14 @@ DLL_EXPORT extern unsigned int csprite; // and sprite
 DLL_EXPORT extern int con_cnt;
 DLL_EXPORT extern int con_type;
 DLL_EXPORT extern char con_name[80];
-DLL_EXPORT extern int container[CONTAINERSIZE];
-DLL_EXPORT extern int price[CONTAINERSIZE];
-DLL_EXPORT extern int itemprice[CONTAINERSIZE];
-DLL_EXPORT extern int cprice;
+DLL_EXPORT extern uint32_t container[CONTAINERSIZE];
+DLL_EXPORT extern uint32_t price[CONTAINERSIZE];
+DLL_EXPORT extern uint32_t itemprice[CONTAINERSIZE];
+DLL_EXPORT extern uint32_t cprice;
 DLL_EXPORT extern int protocol_version;
 
 extern int looklevel;
-DLL_EXPORT extern int mirror, newmirror;
+DLL_EXPORT extern uint32_t mirror, newmirror;
 extern int may_teleport[64 + 32];
 DLL_EXPORT extern int pspeed; // 0=ill 1=stealth 2=normal 3=fast
 
@@ -501,31 +502,31 @@ DLL_EXPORT extern union ceffect ceffect[MAXEF];
 DLL_EXPORT extern unsigned char ueffect[MAXEF];
 DLL_EXPORT extern struct player player[MAXCHARS];
 
-DLL_EXPORT extern int originx;
-DLL_EXPORT extern int originy;
+DLL_EXPORT extern uint16_t originx;
+DLL_EXPORT extern uint16_t originy;
 
 extern int sockstate;
-extern int socktimeout;
+extern time_t socktimeout;
 DLL_EXPORT extern char *target_server;
-extern int target_port;
+extern uint16_t target_port;
 extern int kicked_out;
 
 extern char **game_skilldesc;
 extern struct skill *game_skill;
 
-DLL_EXPORT extern int act;
-DLL_EXPORT extern int actx;
-DLL_EXPORT extern int acty;
+DLL_EXPORT extern uint16_t act;
+DLL_EXPORT extern uint16_t actx;
+DLL_EXPORT extern uint16_t acty;
 
-DLL_EXPORT extern int lookinv[12];
-DLL_EXPORT extern int looksprite, lookc1, lookc2, lookc3;
+DLL_EXPORT extern uint32_t lookinv[12];
+DLL_EXPORT extern uint32_t looksprite, lookc1, lookc2, lookc3;
 DLL_EXPORT extern char look_name[80];
 DLL_EXPORT extern char look_desc[1024];
 
-DLL_EXPORT extern int realtime;
-DLL_EXPORT extern int mil_exp;
-extern int display_gfx;
-extern int display_time;
+DLL_EXPORT extern uint32_t realtime;
+DLL_EXPORT extern uint32_t mil_exp;
+extern unsigned int display_gfx;
+extern uint32_t display_time;
 
 DLL_EXPORT extern char pent_str[7][80];
 
@@ -533,9 +534,9 @@ DLL_EXPORT extern struct quest quest[];
 DLL_EXPORT extern struct shrine_ppd shrine;
 
 void cmd_text(char *text);
-DLL_EXPORT int mapmn(int x, int y);
+DLL_EXPORT map_index_t mapmn(unsigned int x, unsigned int y);
 int find_cn_ceffect(int cn, int skip);
-int find_ceffect(int fn);
+int find_ceffect(unsigned int fn);
 DLL_EXPORT int level2exp(int level);
 DLL_EXPORT int exp2level(int val);
 DLL_EXPORT int raise_cost(int v, int n);
@@ -546,20 +547,20 @@ void cmd_take(int x, int y);
 void cmd_look_map(int x, int y);
 void cmd_look_item(int x, int y);
 void cmd_look_inv(int pos);
-void cmd_look_char(int cn);
+void cmd_look_char(unsigned int cn);
 void cmd_use(int x, int y);
 void cmd_drop(int x, int y);
 void cmd_speed(int mode);
 void cmd_log(char *text);
 void cmd_stop(void);
-void cmd_kill(int cn);
-void cmd_give(int cn);
-void cmd_some_spell(int spell, int x, int y, int chr);
+void cmd_kill(unsigned int cn);
+void cmd_give(unsigned int cn);
+void cmd_some_spell(int spell, int x, int y, unsigned int chr);
 void cmd_raise(int vn);
 void cmd_con(int pos);
 void cmd_look_con(int pos);
 void cmd_drop_gold(void);
-void cmd_take_gold(int amount);
+void cmd_take_gold(uint32_t amount);
 void cmd_junk_item(void);
 void cmd_getquestlog(void);
 void cmd_reopen_quest(int nr);
@@ -568,14 +569,15 @@ void cmd_con_fast(int pos);
 void cmd_teleport(int nr);
 
 int poll_network(void);
-int next_tick(void);
+tick_t next_tick(void);
 int do_tick(void);
 void cl_client_info(struct client_info *ci);
 void cl_ticker(void);
 int close_client(void);
 int is_char_ceffect(int type);
 
-extern int server_cycles;
+extern double server_cycles;
 extern int change_area;
 extern int login_done;
 extern unsigned int unique;
+extern unsigned int usum;

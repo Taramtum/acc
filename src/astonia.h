@@ -4,12 +4,26 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 #include "dll.h"
+#include "game/memory.h"
 
-#ifndef RELEASE
-#define DEVELOPER // this one will compile the developer version - comment me out for the final release
-// #define DEVELOPER_NOISY // Enable verbose logging for debugging (uncomment to enable)
-#endif
+// Semantic type aliases for domain-specific values
+typedef uint32_t tick_t; // SDL ticks, timestamps
+typedef uint16_t stat_t; // Character stats: hp, mana, rage, endurance, lifeshield, level
+typedef uint16_t char_id_t; // Character network ID (cn)
+typedef uint16_t sprite_id_t; // Sprite/texture ID
+typedef size_t map_index_t; // Map tile index, selection indices
+
+// DEVELOPER mode: Enables extra debugging output and developer features
+// Can be enabled via compiler flag: -DDEVELOPER
+// Or uncomment the line below for local development:
+// #define DEVELOPER
+
+// DEVELOPER_NOISY: Enable verbose logging for debugging
+// Can be enabled via compiler flag: -DDEVELOPER_NOISY
+// Or uncomment the line below:
+// #define DEVELOPER_NOISY
 
 #ifndef ORG_NAME
 #define ORG_NAME NULL
@@ -30,7 +44,7 @@
 #define MPT    (1000 / TICKS) // milliseconds per tick
 #define MPF    (1000 / FRAMES) // milliseconds per frame
 
-#define DIST 25
+#define DIST ((unsigned int)25)
 #define FDX  40 // width of a map tile
 #define FDY  20 // height of a map tile
 
@@ -163,11 +177,15 @@ DLL_EXPORT int fail(const char *format, ...) __attribute__((format(printf, 1, 2)
 DLL_EXPORT void paranoia(const char *format, ...) __attribute__((format(printf, 1, 2)));
 void display_messagebox(char *title, char *text);
 
-void *xmalloc(int size, int ID);
-void *xrealloc(void *ptr, int size, int ID);
-void *xrecalloc(void *ptr, int size, int ID);
+void *xmalloc(size_t size, uint8_t ID);
+void *xrealloc(void *ptr, size_t size, uint8_t ID);
+void *xrecalloc(void *ptr, size_t size, uint8_t ID);
 void xfree(void *ptr);
-char *xstrdup(const char *src, int ID);
+char *xstrdup(const char *src, uint8_t ID);
+
+unsigned long long get_total_system_memory(void);
+size_t get_memory_usage(void);
+char *client_version(void);
 
 int rrand(int range);
 
@@ -179,3 +197,6 @@ DLL_EXPORT int buty(int bidx);
 
 void render_set_offset(int x, int y);
 char *client_version(void);
+
+// Crash handler (platform-specific, Windows only)
+void register_crash_handler(void);

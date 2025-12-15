@@ -37,7 +37,9 @@ void update_user_keys(void)
 	}
 }
 
-char *strcasestr(const char *haystack, const char *needle)
+#ifdef _WIN32
+// Windows doesn't have strcasestr, so provide our own implementation
+static char *strcasestr(const char *haystack, const char *needle)
 {
 	const char *ptr;
 
@@ -45,7 +47,7 @@ char *strcasestr(const char *haystack, const char *needle)
 		if (toupper(*ptr) == toupper(*haystack)) {
 			ptr++;
 			if (!*ptr) {
-				return (char *)(haystack + (needle - ptr + 1));
+				return (char *)(uintptr_t)(haystack + (needle - ptr + 1));
 			}
 		} else {
 			ptr = needle;
@@ -53,8 +55,9 @@ char *strcasestr(const char *haystack, const char *needle)
 	}
 	return NULL;
 }
+#endif
 
-void cmd_version(void)
+static void cmd_version(void)
 {
 	int i;
 	char *ptr;
@@ -69,7 +72,7 @@ void cmd_version(void)
 	}
 }
 
-int client_cmd(char *buf)
+static int client_cmd(char *buf)
 {
 	if (!strncmp(buf, "#ps ", 3)) {
 		playersprite_override = atoi(&buf[3]);
@@ -101,7 +104,7 @@ int client_cmd(char *buf)
 		return 1;
 	}
 	if (!strncmp(buf, "#sound ", 7)) {
-		play_sound(atoi(&buf[7]), 0, 0);
+		play_sound((unsigned int)atoi(&buf[7]), 0, 0);
 		return 1;
 	}
 	if (!strncmp(buf, "#volume ", 8) || !strncmp(buf, "/volume ", 8)) {
@@ -152,7 +155,7 @@ int client_cmd(char *buf)
 			addline("Key is out of bounds (must be between A and Z)");
 			return 1;
 		}
-		user_keys[what] = key;
+		user_keys[what] = (char)key;
 		update_user_keys();
 		save_options();
 
@@ -174,7 +177,7 @@ int client_cmd(char *buf)
 char rem_buf[10][256] = {""};
 int rem_in = 0, rem_out = 0;
 
-void cmd_remember(char *ptr)
+static void cmd_remember(char *ptr)
 {
 	char *start = ptr, *dst;
 	char tmp[256];
@@ -232,7 +235,7 @@ do_remember:
 	rem_out = rem_in;
 }
 
-void cmd_fetch(char *ptr)
+static void cmd_fetch(char *ptr)
 {
 	if (rem_out != (rem_in + 1) % 10) {
 		strcpy(ptr, rem_buf[rem_out]);
@@ -251,12 +254,12 @@ void cmd_proc(int key)
 		if (cmdcursor < 1) {
 			break;
 		}
-		memmove(cmdline + cmdcursor - 1, cmdline + cmdcursor, MAXCMDLINE - cmdcursor);
+		memmove(cmdline + cmdcursor - 1, cmdline + cmdcursor, (size_t)(MAXCMDLINE - cmdcursor));
 		cmdline[MAXCMDLINE - 1] = 0;
 		cmdcursor--;
 		break;
 	case CMD_DELETE:
-		memmove(cmdline + cmdcursor, cmdline + cmdcursor + 1, MAXCMDLINE - cmdcursor - 1);
+		memmove(cmdline + cmdcursor, cmdline + cmdcursor + 1, (size_t)(MAXCMDLINE - cmdcursor - 1));
 		cmdline[MAXCMDLINE - 1] = 0;
 		break;
 
@@ -355,14 +358,14 @@ void cmd_proc(int key)
 			break;
 		}
 		if (cmdcursor < MAXCMDLINE - 1) {
-			memmove(cmdline + cmdcursor + 1, cmdline + cmdcursor, MAXCMDLINE - cmdcursor - 1);
-			cmdline[cmdcursor++] = key;
+			memmove(cmdline + cmdcursor + 1, cmdline + cmdcursor, (size_t)(MAXCMDLINE - cmdcursor - 1));
+			cmdline[cmdcursor++] = (char)key;
 		}
 		break;
 	}
 }
 
-void cmd_add_text(const char *buf, int typ)
+DLL_EXPORT void cmd_add_text(const char *buf, int typ __attribute__((unused)))
 {
 	context_key_set(1);
 

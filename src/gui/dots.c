@@ -17,12 +17,16 @@
 
 extern int __textdisplay_sy;
 
-DOT *dot = NULL;
-BUT *but = NULL;
+static DOT dot_storage[MAX_DOT];
+DOT *dot = dot_storage;
+static BUT but_storage[MAX_BUT];
+BUT *but = but_storage;
 
 // dot and but helpers
+static void set_dot(int didx, int x, int y, int flags);
+static void set_but(int bidx, int x, int y, int hitrad, int flags);
 
-void set_dot(int didx, int x, int y, int flags)
+static void set_dot(int didx, int x, int y, int flags)
 {
 	PARANOIA(if (didx < 0 || didx >= MAX_DOT) paranoia("set_dot: ill didx=%d", didx);)
 
@@ -44,7 +48,7 @@ DLL_EXPORT int doty(int didx)
 	return dot[didx].y;
 }
 
-void set_but(int bidx, int x, int y, int hitrad, int flags)
+static void set_but(int bidx, int x, int y, int hitrad, int flags)
 {
 	PARANOIA(if (bidx < 0 || bidx >= MAX_BUT) paranoia("set_but: ill bidx=%d", bidx);)
 
@@ -80,9 +84,6 @@ void dots_update(void)
 void init_dots(void)
 {
 	int i, x, y, xc, yc;
-
-	// dots
-	dot = xmalloc(MAX_DOT * sizeof(DOT), MEM_GUI);
 
 	// top left, bottom right of screen
 	set_dot(DOT_TL, 0, 0, 0);
@@ -191,9 +192,6 @@ void init_dots(void)
 
 	// tutor window
 	dots_update();
-
-	// buts
-	but = xmalloc(MAX_BUT * sizeof(BUT), MEM_GUI);
 
 	set_but(BUT_MAP, XRES / 2, YRES / 2, 0, BUTF_NOHIT);
 
